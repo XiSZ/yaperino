@@ -1,0 +1,56 @@
+# Builds and tests Yaperino on every push and pull request.
+# Pushing a tag like v0.2.0 also makes a GitHub release with Yaperino.exe attached.
+#
+# Twitch sign-in: add a repository secret named YAPERINO_TWITCH_CLIENT_ID
+# (Settings > Secrets and variables > Actions) holding your Twitch app's Client ID.
+# Without it the release still works; it asks each user for a Client ID instead.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test
+
+      - name: Build
+        env:
+          YAPERINO_TWITCH_CLIENT_ID: ${{ secrets.YAPERINO_TWITCH_CLIENT_ID }}
+        run: cargo build --release
+
+      - name: Name the program
+        shell: pwsh
+        run: Copy-Item target\release\live-streams.exe Yaperino.exe
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Yaperino
+          path: Yaperino.exe
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: Yaperino.exe
+          generate_release_notes: true

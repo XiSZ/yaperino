@@ -1,0 +1,8 @@
+# Keeps the GitHub Actions in .github/workflows up to date: once a month GitHub opens a
+# pull request when an action has a new version. Nothing changes until it is merged.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

@@ -1,0 +1,40 @@
+# Build output
+/target
+*.pdb
+*.exe
+
+# Screenshots from `--screenshot` checks
+/shots
+
+# Local settings, logs and secrets (sign-ins live in %APPDATA%\Yaperino, never here)
+*.ron
+*.log
+.env
+.env.*
+# your Twitch app's Client ID (see README > Twitch app)
+twitch_client_id.txt
+
+# This computer's build-folder workaround for Windows ransomware protection
+# (see README > Build)
+/.cargo/
+
+# Private notes: Craft Anything's design log and the handover for Claude Code
+# (CLAUDE.md, the public developer guide, stays in git)
+MECHANICS.md
+mechanics.json
+HANDOVER.md
+
+# Claude Code: working copies (each is its own branch) and personal settings.
+# Shared project settings (.claude/settings.json, commands, agents) stay in git.
+/.claude/worktrees/
+/.claude/settings.local.json
+CLAUDE.local.md
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+desktop.ini
+.DS_Store
