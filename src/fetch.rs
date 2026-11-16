@@ -28,10 +28,23 @@ const LIST_KEYS: [&str; 4] = ["data", "channels", "follows", "following"];
 
 /// Default place of the person's plugin channel list.
 pub fn default_channels_file() -> Option<PathBuf> {
-    let appdata = std::env::var_os("APPDATA")?;
+    // Chatterino's own folder: %APPDATA%\Chatterino2, ~/.local/share/chatterino,
+    // ~/Library/Application Support/chatterino
+    #[cfg(windows)]
+    let chatterino = PathBuf::from(std::env::var_os("APPDATA")?).join("Chatterino2");
+    #[cfg(target_os = "macos")]
+    let chatterino = std::env::home_dir()?
+        .join("Library")
+        .join("Application Support")
+        .join("chatterino");
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let chatterino = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::home_dir().map(|h| h.join(".local").join("share")))?
+        .join("chatterino");
     Some(
-        PathBuf::from(appdata)
-            .join("Chatterino2")
+        chatterino
             .join("Plugins")
             .join("online-channels")
             .join("data")

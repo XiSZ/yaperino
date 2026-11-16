@@ -52,11 +52,7 @@ pub enum Out {
 
 /// The plugins folder.
 pub fn folder() -> Option<PathBuf> {
-    Some(
-        PathBuf::from(std::env::var_os("APPDATA")?)
-            .join(crate::APP_ID)
-            .join("Plugins"),
-    )
+    crate::paths::app_dir().map(|d| d.join("Plugins"))
 }
 
 /// Reads every plugin folder's info.json.

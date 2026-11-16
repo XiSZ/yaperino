@@ -15,13 +15,9 @@ pub fn play_sound() {
     }
 }
 
-/// Where chat logs go when no folder is set: %APPDATA%\Yaperino\Logs.
+/// Where chat logs go when no folder is set: %APPDATA%\Yaperino\Logs on Windows.
 pub fn default_log_dir() -> PathBuf {
-    std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_default()
-        .join(crate::APP_ID)
-        .join("Logs")
+    crate::paths::app_dir_or_here().join("Logs")
 }
 
 /// Total size of the files in a folder (for "Your logs currently take up ...").

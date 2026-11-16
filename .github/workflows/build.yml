@@ -1,5 +1,5 @@
-# Builds and tests Yaperino on every push and pull request.
-# Pushing a tag like v0.2.0 also makes a GitHub release with Yaperino.exe attached.
+# Builds and tests Yaperino for Windows, Linux and macOS on every push and pull request.
+# Pushing a tag like v0.2.0 also makes a GitHub release with the three downloads attached.
 #
 # Twitch sign-in: add a repository secret named YAPERINO_TWITCH_CLIENT_ID
 # (Settings > Secrets and variables > Actions) holding your Twitch app's Client ID.
@@ -14,11 +14,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  windows:
-    runs-on: windows-latest
+  format:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
@@ -26,31 +26,152 @@ jobs:
         with:
           components: rustfmt
 
-      - uses: Swatinem/rust-cache@v2
-
       - name: Check formatting
         run: cargo fmt --check
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          # the oldest supported Ubuntu, so the program also runs on older Linux systems
+          - os: ubuntu-22.04
+            name: linux
+          - os: macos-latest
+            name: macos
+    runs-on: ${{ matrix.os }}
+    env:
+      YAPERINO_TWITCH_CLIENT_ID: ${{ secrets.YAPERINO_TWITCH_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # macOS: one program for Apple Silicon and Intel Macs
+          targets: ${{ matrix.name == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Test
         run: cargo test
 
       - name: Build
-        env:
-          YAPERINO_TWITCH_CLIENT_ID: ${{ secrets.YAPERINO_TWITCH_CLIENT_ID }}
+        if: matrix.name != 'macos'
         run: cargo build --release
 
-      - name: Name the program
+      - name: Build (Apple Silicon and Intel)
+        if: matrix.name == 'macos'
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+
+      - name: Package for Windows
+        if: matrix.name == 'windows'
         shell: pwsh
-        run: Copy-Item target\release\live-streams.exe Yaperino.exe
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item target\release\live-streams.exe dist\Yaperino.exe
+
+      - name: Package for Linux
+        if: matrix.name == 'linux'
+        run: |
+          mkdir -p dist pkg/Yaperino
+          cp target/release/live-streams pkg/Yaperino/yaperino
+          cp README.md LICENSE pkg/Yaperino/
+          tar -czf dist/Yaperino-linux-x86_64.tar.gz -C pkg Yaperino
+
+      - name: Package for macOS
+        if: matrix.name == 'macos'
+        run: |
+          APP=pkg/Yaperino.app
+          mkdir -p "$APP/Contents/MacOS" dist
+          lipo -create -output "$APP/Contents/MacOS/Yaperino" \
+            target/aarch64-apple-darwin/release/live-streams \
+            target/x86_64-apple-darwin/release/live-streams
+          VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          cat > "$APP/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Yaperino</string>
+            <key>CFBundleDisplayName</key><string>Yaperino</string>
+            <key>CFBundleIdentifier</key><string>io.github.xisz.yaperino</string>
+            <key>CFBundleExecutable</key><string>Yaperino</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleVersion</key><string>$VERSION</string>
+            <key>CFBundleShortVersionString</key><string>$VERSION</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          EOF
+          plutil -lint "$APP/Contents/Info.plist"
+          # not signed with an Apple developer account: an ad-hoc signature, so Apple Silicon
+          # Macs accept the program after "Open Anyway"
+          codesign --force --deep -s - "$APP"
+          ditto -c -k --keepParent "$APP" dist/Yaperino-macos.zip
+
+      # Proof that the Linux and macOS programs start and draw: a picture of the Live
+      # Streams window and of a chat, with built-in sample data (no network, no sign-in).
+      - name: Screenshots (Linux)
+        if: matrix.name == 'linux'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgl1-mesa-dri libegl1 libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2
+          mkdir -p shots
+          LIVE_STREAMS_SHOT_LIVE=1 xvfb-run -a -s "-screen 0 1600x1000x24" target/release/live-streams --screenshot shots/linux-live.png
+          LIVE_STREAMS_SHOT_CHATS=1 xvfb-run -a -s "-screen 0 1600x1000x24" target/release/live-streams --screenshot shots/linux-chats.png
+
+      - name: Screenshots (macOS)
+        if: matrix.name == 'macos'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          mkdir -p shots
+          LIVE_STREAMS_SHOT_LIVE=1 pkg/Yaperino.app/Contents/MacOS/Yaperino --screenshot "$PWD/shots/macos-live.png"
+          LIVE_STREAMS_SHOT_CHATS=1 pkg/Yaperino.app/Contents/MacOS/Yaperino --screenshot "$PWD/shots/macos-chats.png"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: Yaperino
-          path: Yaperino.exe
+          name: Yaperino-${{ matrix.name }}
+          path: dist/*
 
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
+      - uses: actions/upload-artifact@v7
+        if: matrix.name != 'windows'
         with:
-          files: Yaperino.exe
+          name: screenshots-${{ matrix.name }}
+          path: shots/*.png
+          if-no-files-found: ignore
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [format, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: Yaperino-*
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*
           generate_release_notes: true
+          body: |
+            ## Downloads
+
+            - **Windows:** `Yaperino.exe`. Start it; if Windows warns that the program is unknown, click *More info > Run anyway*.
+            - **macOS (experimental):** `Yaperino-macos.zip` (Apple Silicon and Intel, macOS 11 or newer). Unzip it and move Yaperino to Applications. The first time, macOS blocks it because it isn't signed by an Apple developer: open System Settings > Privacy & Security and click *Open Anyway*.
+            - **Linux (experimental):** `Yaperino-linux-x86_64.tar.gz`. Extract it and run `./yaperino`. Kick and YouTube sign-in isn't available on Linux yet; reading their chats works.
+
+            Linux and macOS builds are new and not tested on real computers yet: please report problems in the issues.

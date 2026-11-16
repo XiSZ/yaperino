@@ -22,6 +22,7 @@ mod logo;
 mod model;
 mod moderation;
 mod otherchat;
+mod paths;
 mod platforms;
 mod plugins;
 mod rules;

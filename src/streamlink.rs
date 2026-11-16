@@ -45,7 +45,12 @@ pub fn find(settings: &StreamlinkSettings) -> Option<PathBuf> {
         dirs.extend(std::env::split_paths(&path));
     }
     for d in &dirs {
-        for name in ["streamlinkw.exe", "streamlink.exe"] {
+        let names: &[&str] = if cfg!(windows) {
+            &["streamlinkw.exe", "streamlink.exe"]
+        } else {
+            &["streamlink"]
+        };
+        for name in names {
             let p = d.join(name);
             if p.is_file() {
                 return Some(p);

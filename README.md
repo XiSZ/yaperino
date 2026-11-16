@@ -2,7 +2,7 @@
 
 # Yaperino
 
-Yaperino is a desktop chat app for Windows that puts **Twitch, Kick, YouTube and TikTok**
+Yaperino is a desktop chat app for Windows (Linux and macOS: experimental) that puts **Twitch, Kick, YouTube and TikTok**
 chat in one window. It looks and works like [Chatterino](https://github.com/Chatterino/chatterino2),
 [chatterino7](https://github.com/SevenTV/chatterino7) and [Moltorino](https://github.com/EEVA-inc/Moltorino),
 and adds [Chatty](https://github.com/chatty/chatty)'s **Live Streams** window: a list of the
@@ -88,38 +88,65 @@ Sign in to Twitch again after updating to grant the permissions.
 
 ## Download and install
 
-1. Download **`Yaperino.exe`** from the [latest release](https://github.com/XiSZ/yaperino/releases/latest).
-2. Start it. Nothing else needs installing.
+All downloads are on the [latest release](https://github.com/XiSZ/yaperino/releases/latest) page.
+
+### Windows
+
+1. Download **`Yaperino.exe`** and start it. Nothing else needs installing.
    Windows may warn that the program is unknown, because it isn't code-signed: click
    *More info > Run anyway*.
-3. Optional: open Settings (Ctrl+P) > **About** > **Install Yaperino**. It is copied to
+2. Optional: open Settings (Ctrl+P) > **About** > **Install Yaperino**. It is copied to
    `%LOCALAPPDATA%\Programs\Yaperino` and added to Start and to Settings > Apps, for your
    Windows account only (no admin rights needed). Uninstall it from Settings > Apps like any
    app.
 
-**Requirements:** Windows 10 or 11. Kick and YouTube sign-in use Microsoft Edge WebView2,
-which Windows 10 and 11 already have. [Streamlink](https://streamlink.github.io/) is optional,
-for "Open in Streamlink".
+Needs Windows 10 or 11. Kick and YouTube sign-in use Microsoft Edge WebView2, which Windows
+10 and 11 already have.
 
-**Your data stays yours:** settings and sign-ins are saved on your computer in
-`%APPDATA%\Yaperino`, and you sign in with your own Twitch, Kick and YouTube accounts.
-Twitch sign-in works right away: releases include the project's Twitch app Client ID, which is
-a public identifier, not a secret.
+### macOS (experimental)
+
+1. Download **`Yaperino-macos.zip`** (one app for Apple Silicon and Intel Macs, macOS 11 or
+   newer), unzip it and move **Yaperino** to Applications.
+2. Open it. The first time, macOS blocks it because it isn't signed by an Apple developer:
+   open System Settings > **Privacy & Security**, scroll down and click **Open Anyway**.
+
+### Linux (experimental)
+
+1. Download **`Yaperino-linux-x86_64.tar.gz`**, extract it and run `./yaperino`.
+2. Kick and YouTube sign-in isn't available on Linux yet. Their chats can still be read, and
+   Twitch sign-in works.
+
+Live notifications and sounds are Windows only so far. The Linux and macOS versions are new
+and haven't been tested on real computers yet: please report what works and what doesn't in
+the [issues](https://github.com/XiSZ/yaperino/issues).
+
+[Streamlink](https://streamlink.github.io/) is optional on every system, for "Open in
+Streamlink".
+
+**Your data stays yours:** settings and sign-ins are saved on your computer
+(`%APPDATA%\Yaperino` on Windows, `~/Library/Application Support/Yaperino` on macOS,
+`~/.local/share/yaperino` on Linux), and you sign in with your own Twitch, Kick and YouTube
+accounts. Twitch sign-in works right away: releases include the project's Twitch app Client
+ID, which is a public identifier, not a secret.
 
 ## Build
 
 You need:
 
 - a recent stable Rust (rustup.rs);
-- on Windows, the Visual Studio Build Tools with "Desktop development with C++". The C compiler
-  builds the bundled Lua, and the Windows SDK's `rc.exe` puts the icon into the program.
+- a C compiler, which builds the bundled Lua:
+  - Windows: the Visual Studio Build Tools with "Desktop development with C++" (its Windows
+    SDK's `rc.exe` also puts the icon into the program);
+  - macOS: the Xcode Command Line Tools (`xcode-select --install`);
+  - Linux: `gcc` and `make` (on Ubuntu/Debian: `sudo apt install build-essential`).
 
 ```
 cargo build --release
 cargo test
 ```
 
-The program is `target/release/live-streams.exe`. The installer copies it as `Yaperino.exe`.
+The program is `target/release/live-streams.exe` (`live-streams` on Linux and macOS). The Windows
+installer copies it as `Yaperino.exe`.
 It keeps the older file name because Windows' ransomware protection had an exception for that name on the
 development machine. Rename the `[[bin]]` in `Cargo.toml` if you don't need that.
 

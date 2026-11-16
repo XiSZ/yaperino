@@ -571,29 +571,32 @@ impl LiveApp {
         heading(ui, "Window", TEXT);
         ui.checkbox(&mut look.own_title_bar, "Use Yaperino's own title bar (account, settings and window buttons on top, like Chatterino)");
         ui.checkbox(&mut self.settings.always_on_top, "Always on top");
-        let installed = *self
-            .settings_ui
-            .installed
-            .get_or_insert_with(crate::install::is_installed);
-        let mut start = self.settings.start_with_windows;
-        let r = ui.add_enabled(
-            installed || start,
-            egui::Checkbox::new(&mut start, "Start with Windows"),
-        );
-        let r = r.on_disabled_hover_text(
-            "Install Yaperino first (About > Install), so Windows starts the installed copy",
-        );
-        if r.changed() {
-            match super::features::set_start_with_windows(start) {
-                Ok(()) => {
-                    self.settings.start_with_windows = start;
-                    self.settings_ui.start_message.clear();
+        // "Start with Windows" uses the Windows registry
+        if cfg!(windows) {
+            let installed = *self
+                .settings_ui
+                .installed
+                .get_or_insert_with(crate::install::is_installed);
+            let mut start = self.settings.start_with_windows;
+            let r = ui.add_enabled(
+                installed || start,
+                egui::Checkbox::new(&mut start, "Start with Windows"),
+            );
+            let r = r.on_disabled_hover_text(
+                "Install Yaperino first (About > Install), so Windows starts the installed copy",
+            );
+            if r.changed() {
+                match super::features::set_start_with_windows(start) {
+                    Ok(()) => {
+                        self.settings.start_with_windows = start;
+                        self.settings_ui.start_message.clear();
+                    }
+                    Err(e) => self.settings_ui.start_message = e,
                 }
-                Err(e) => self.settings_ui.start_message = e,
             }
-        }
-        if !self.settings_ui.start_message.is_empty() {
-            ui.weak(&self.settings_ui.start_message);
+            if !self.settings_ui.start_message.is_empty() {
+                ui.weak(&self.settings_ui.start_message);
+            }
         }
         ui.add_space(8.0);
         if ui.button("Reset the look").clicked() {
@@ -2626,6 +2629,16 @@ fn link_line(ui: &mut egui::Ui, before: &str, link: &str, target: &str, after: &
     });
 }
 
+/// Linux or macOS, and the processor type, e.g. "macOS (aarch64)".
+fn other_system() -> String {
+    let name = match std::env::consts::OS {
+        "macos" => "macOS",
+        "linux" => "Linux",
+        other => other,
+    };
+    format!("{name} ({})", std::env::consts::ARCH)
+}
+
 /// The Windows version, e.g. "Windows 11 Version 26H2, kernel 10.0.26300" (asked once).
 fn windows_version() -> String {
     static V: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -2732,11 +2745,14 @@ impl LiveApp {
                 "Yaperino {} built with Rust and egui",
                 crate::VERSION
             ));
-            ui.label(format!("Running on {}", windows_version()));
+            let system = if cfg!(windows) {
+                windows_version()
+            } else {
+                other_system()
+            };
+            ui.label(format!("Running on {system}"));
             ui.add_space(4.0);
-            if let Some(dir) =
-                std::env::var_os("APPDATA").map(|a| std::path::PathBuf::from(a).join(crate::APP_ID))
-            {
+            if let Some(dir) = crate::paths::app_dir() {
                 let shown = dir.display().to_string();
                 link_line(
                     ui,
@@ -2789,53 +2805,57 @@ impl LiveApp {
                 }
             });
         });
-        let installed = *self
-            .settings_ui
-            .installed
-            .get_or_insert_with(crate::install::is_installed);
-        let mut do_install = false;
-        let mut do_uninstall = false;
-        let message = self.settings_ui.install_message.clone();
-        about_box(ui, "Install", |ui| {
-            if installed {
-                ui.label("Yaperino is installed for you: it is in Start and in Settings > Apps > Installed apps.");
-            } else {
-                ui.label("Put Yaperino in Start and in Settings > Apps > Installed apps (for you only, no admin needed). Your settings and sign-ins stay the same.");
-            }
-            ui.horizontal(|ui| {
-                if ui
-                    .button(if installed {
-                        "Update the installed Yaperino"
-                    } else {
-                        "Install Yaperino"
-                    })
-                    .clicked()
-                {
-                    do_install = true;
+        // Install / Uninstall (Start menu and Apps list) is Windows only
+        if cfg!(windows) {
+            let installed = *self
+                .settings_ui
+                .installed
+                .get_or_insert_with(crate::install::is_installed);
+            let mut do_install = false;
+            let mut do_uninstall = false;
+            let message = self.settings_ui.install_message.clone();
+            about_box(ui, "Install", |ui| {
+                if installed {
+                    ui.label("Yaperino is installed for you: it is in Start and in Settings > Apps > Installed apps.");
+                } else {
+                    ui.label("Put Yaperino in Start and in Settings > Apps > Installed apps (for you only, no admin needed). Your settings and sign-ins stay the same.");
                 }
-                if installed && ui.button("Uninstall").clicked() {
-                    do_uninstall = true;
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(if installed {
+                            "Update the installed Yaperino"
+                        } else {
+                            "Install Yaperino"
+                        })
+                        .clicked()
+                    {
+                        do_install = true;
+                    }
+                    if installed && ui.button("Uninstall").clicked() {
+                        do_uninstall = true;
+                    }
+                });
+                if !message.is_empty() {
+                    ui.label(&message);
+                }
+                if let Some(d) = crate::install::install_dir() {
+                    ui.weak(format!("Installed to {}", d.display()));
                 }
             });
-            if !message.is_empty() {
-                ui.label(&message);
+            if do_install {
+                self.settings_ui.install_message = crate::install::install().unwrap_or_else(|e| e);
+                self.settings_ui.installed = None;
             }
-            if let Some(d) = crate::install::install_dir() {
-                ui.weak(format!("Installed to {}", d.display()));
+            if do_uninstall {
+                self.settings_ui.install_message = match crate::install::uninstall() {
+                    Ok(()) => {
+                        "Removed from Start and the Apps list. Settings and sign-ins are kept."
+                            .into()
+                    }
+                    Err(e) => e,
+                };
+                self.settings_ui.installed = None;
             }
-        });
-        if do_install {
-            self.settings_ui.install_message = crate::install::install().unwrap_or_else(|e| e);
-            self.settings_ui.installed = None;
-        }
-        if do_uninstall {
-            self.settings_ui.install_message = match crate::install::uninstall() {
-                Ok(()) => {
-                    "Removed from Start and the Apps list. Settings and sign-ins are kept.".into()
-                }
-                Err(e) => e,
-            };
-            self.settings_ui.installed = None;
         }
         let shown = &mut self.settings_ui.shown_licenses;
         about_box(ui, "Open source software used...", |ui| {

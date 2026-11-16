@@ -9,7 +9,9 @@
 //! (outside Documents, where Windows' ransomware protection would block it).
 
 use std::path::PathBuf;
+#[cfg(not(target_os = "linux"))]
 use std::sync::{Arc, Mutex};
+#[cfg(not(target_os = "linux"))]
 use std::time::{Duration, Instant};
 
 /// The line the login window writes on its pipe, followed by the session as JSON.
@@ -76,6 +78,7 @@ pub fn url_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 struct Site {
     title: &'static str,
     start: &'static str,
@@ -84,6 +87,7 @@ struct Site {
     needs: &'static [&'static str],
 }
 
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn site(name: &str) -> Option<Site> {
     match name {
         "kick" => Some(Site {
@@ -104,13 +108,8 @@ fn site(name: &str) -> Option<Site> {
 
 /// Where a site's browser profile lives.
 pub fn profile_dir(site: &str) -> Option<PathBuf> {
-    let base = std::env::var_os("LOCALAPPDATA")?;
-    Some(
-        PathBuf::from(base)
-            .join(crate::APP_ID)
-            .join("WebView2")
-            .join(site),
-    )
+    let folder = if cfg!(windows) { "WebView2" } else { "WebView" };
+    crate::paths::local_dir().map(|d| d.join(folder).join(site))
 }
 
 /// Sign out: forget the site's browser profile, so the next sign-in asks again.
@@ -122,6 +121,11 @@ pub fn forget(site: &str) {
 
 /// In the app: opens the login window and waits until it closes.
 pub fn sign_in(site: &str) -> Result<WebSession, String> {
+    if cfg!(target_os = "linux") {
+        return Err(
+            "Kick and YouTube sign-in isn't available on Linux yet. Chat can still be read.".into(),
+        );
+    }
     use std::io::Read;
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -145,7 +149,16 @@ pub fn sign_in(site: &str) -> Result<WebSession, String> {
 }
 
 // ---------------------------------------------------------------- the login window
+// Windows (WebView2) and macOS (WKWebView). Linux would need WebKitGTK and a GTK window,
+// which isn't done yet: there `run` only reports that.
 
+#[cfg(target_os = "linux")]
+pub fn run(_site_name: &str) -> i32 {
+    eprintln!("Kick and YouTube sign-in isn't available on Linux yet");
+    5
+}
+
+#[cfg(not(target_os = "linux"))]
 struct Login {
     site: Site,
     context: wry::WebContext,
@@ -158,6 +171,7 @@ struct Login {
     failed: bool,
 }
 
+#[cfg(not(target_os = "linux"))]
 impl winit::application::ApplicationHandler for Login {
     fn resumed(&mut self, el: &winit::event_loop::ActiveEventLoop) {
         if self.window.is_some() {
@@ -254,6 +268,7 @@ impl winit::application::ApplicationHandler for Login {
 }
 
 /// `--web-login <site>`: runs the login window; returns the process exit code.
+#[cfg(not(target_os = "linux"))]
 pub fn run(site_name: &str) -> i32 {
     let Some(site) = site(site_name) else {
         return 2;

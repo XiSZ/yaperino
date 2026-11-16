@@ -559,11 +559,7 @@ impl LiveApp {
         let Some(tab) = self.chats.iter().find(|t| t.login == key) else {
             return;
         };
-        let dir = std::env::var_os("APPDATA")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_default()
-            .join(crate::APP_ID)
-            .join("Exports");
+        let dir = crate::paths::app_dir_or_here().join("Exports");
         let safe: String = tab
             .display
             .chars()

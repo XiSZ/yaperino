@@ -535,9 +535,10 @@ fn windows_offset() -> i64 {
     -((tzi.bias + daylight) as i64) * 60
 }
 
+/// Linux and macOS: the local time zone's offset from UTC in seconds.
 #[cfg(not(windows))]
 fn windows_offset() -> i64 {
-    0
+    chrono::Local::now().offset().local_minus_utc() as i64
 }
 
 #[cfg(test)]
