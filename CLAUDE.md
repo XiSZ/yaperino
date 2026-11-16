@@ -3,7 +3,22 @@
 Yaperino is a desktop chat for **Twitch, Kick, YouTube and TikTok (read only)** in the
 style of Chatterino 2 / chatterino7 / Moltorino, plus a Chatty-style **Live Streams**
 window (Alt+L) listing followed channels that are live. Rust + egui/eframe 0.37, Windows
-first. The person who owns it doesn't code: explain results in plain words.
+first; Linux and macOS builds are experimental (see "Linux and macOS" below). The person who
+owns it doesn't code: explain results in plain words.
+
+## Linux and macOS
+
+- GitHub builds all three (`.github/workflows/build.yml`) and takes `--screenshot` pictures
+  on Linux (under xvfb) and macOS; they're the `screenshots-*` artifacts of each run. Nobody
+  has tested the real app there yet. This machine is Windows: CI is the only check for them.
+- Folders always come from `paths.rs` (`app_dir`, `local_dir`). Never read `APPDATA` /
+  `LOCALAPPDATA` directly. On Windows they must stay exactly `%APPDATA%\Yaperino` and
+  `%LOCALAPPDATA%\Yaperino` (a test checks it), or users lose their settings.
+- Windows-only code (registry, Win32, notifications, sounds, install, "Start with Windows")
+  stays behind `#[cfg(windows)]` / `cfg!(windows)`. Linux has no Kick / YouTube sign-in
+  window yet (`wry` would need WebKitGTK), so `wry` and `winit` are not built there.
+- Fonts: `style::read_system_font` maps the Windows font files to macOS / Linux fonts.
+  Emoji such as 💬 still show as boxes there (no monochrome emoji font on those systems).
 
 ## Build, test, run
 
@@ -74,7 +89,8 @@ Network tests: `LIVE_STREAMS_TEST_LOGIN` (Chatterino login-info format), then
 | `hotkeys.rs` | `ACTIONS` (27, Chatterino defaults + Ctrl+J/Ctrl+L), parse/format, `pressed` |
 | `plugins.rs` | Lua 5.4 plugins (`c2` API subset, permissions, sandbox) |
 | `emotes.rs` | Twitch / 7TV / BTTV / FFZ / Kick emotes and badges |
-| `streamlink.rs`, `browser.rs`, `install.rs`, `logo.rs`, `demo.rs` | Streamlink, open URLs, per-user install/uninstall, drawn logo, sample data |
+| `paths.rs` | Yaperino's folders on each system (`app_dir`, `local_dir`) |
+| `streamlink.rs`, `browser.rs`, `install.rs`, `logo.rs`, `demo.rs` | Streamlink, open URLs (`open` / `xdg-open` off Windows), per-user install/uninstall (Windows), drawn logo, sample data |
 
 ## How the code is organised (follow these patterns)
 
