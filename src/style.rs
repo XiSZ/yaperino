@@ -66,6 +66,93 @@ pub const FONTS: [(&str, &str, &str); 6] = [
     ("Consolas", "consola.ttf", "consolab.ttf"),
 ];
 
+/// Reads a font by its Windows file name (in C:\Windows\Fonts). On macOS and Linux the
+/// closest font that comes with the system is used: Arial and Apple Symbols on macOS,
+/// Liberation Sans (looks like Arial), DejaVu Sans and Noto Sans Symbols 2 on Linux.
+fn read_system_font(file: &str) -> Option<Vec<u8>> {
+    #[cfg(windows)]
+    {
+        let dir = std::env::var_os("WINDIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| "C:\\Windows".into())
+            .join("Fonts");
+        std::fs::read(dir.join(file)).ok()
+    }
+    #[cfg(not(windows))]
+    {
+        other_system_font_files(file)
+            .iter()
+            .find_map(|p| std::fs::read(p).ok())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn other_system_font_files(file: &str) -> &'static [&'static str] {
+    match file {
+        "segoeui.ttf" | "arial.ttf" | "calibri.ttf" => {
+            &["/System/Library/Fonts/Supplemental/Arial.ttf"]
+        }
+        "segoeuib.ttf" | "arialbd.ttf" | "calibrib.ttf" => {
+            &["/System/Library/Fonts/Supplemental/Arial Bold.ttf"]
+        }
+        "verdana.ttf" => &["/System/Library/Fonts/Supplemental/Verdana.ttf"],
+        "verdanab.ttf" => &["/System/Library/Fonts/Supplemental/Verdana Bold.ttf"],
+        "tahoma.ttf" => &["/System/Library/Fonts/Supplemental/Tahoma.ttf"],
+        "tahomabd.ttf" => &["/System/Library/Fonts/Supplemental/Tahoma Bold.ttf"],
+        "consola.ttf" => &["/System/Library/Fonts/Supplemental/Courier New.ttf"],
+        "consolab.ttf" => &["/System/Library/Fonts/Supplemental/Courier New Bold.ttf"],
+        "seguisym.ttf" => &["/System/Library/Fonts/Apple Symbols.ttf"],
+        _ => &[],
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn other_system_font_files(file: &str) -> &'static [&'static str] {
+    // Debian/Ubuntu, Fedora and Arch keep the same fonts in different folders
+    match file {
+        "segoeui.ttf" | "arial.ttf" | "verdana.ttf" | "tahoma.ttf" | "calibri.ttf" => &[
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/TTF/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        ],
+        "segoeuib.ttf" | "arialbd.ttf" | "verdanab.ttf" | "tahomabd.ttf" | "calibrib.ttf" => &[
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/liberation-sans-fonts/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/TTF/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+        ],
+        "consola.ttf" => &[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf",
+            "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        ],
+        "consolab.ttf" => &[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf",
+            "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono-Bold.ttf",
+            "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf",
+        ],
+        // symbols such as ♡ ⚔ ✨
+        "seguisym.ttf" => &[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        ],
+        "seguiemj.ttf" => &[
+            "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+            "/usr/share/fonts/google-noto/NotoSansSymbols2-Regular.ttf",
+            "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
+        ],
+        _ => &[],
+    }
+}
+
 pub fn install(ctx: &egui::Context) {
     // web images for emotes and badges (webp, gif, png over https)
     egui_extras::install_image_loaders(ctx);
@@ -77,12 +164,8 @@ pub fn apply(ctx: &egui::Context, look: &Appearance) {
     theme::set(theme::Palette::named(&look.theme, look.accent));
     let p = theme::c();
     let mut fonts = FontDefinitions::default();
-    let dir = std::env::var_os("WINDIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| "C:\\Windows".into())
-        .join("Fonts");
     let mut load = |key: &str, file: &str| -> Option<String> {
-        let bytes = std::fs::read(dir.join(file)).ok()?;
+        let bytes = read_system_font(file)?;
         fonts
             .font_data
             .insert(key.into(), Arc::new(FontData::from_owned(bytes)));
