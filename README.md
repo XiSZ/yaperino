@@ -2,6 +2,8 @@
 
 # Yaperino
 
+[![Downloads](https://img.shields.io/github/downloads/XiSZ/yaperino/total?label=downloads)](https://github.com/XiSZ/yaperino/releases)
+
 Yaperino is a desktop chat app for Windows (Linux and macOS: experimental) that puts **Twitch, Kick, YouTube and TikTok**
 chat in one window. It looks and works like [Chatterino](https://github.com/Chatterino/chatterino2),
 [chatterino7](https://github.com/SevenTV/chatterino7) and [Moltorino](https://github.com/EEVA-inc/Moltorino),

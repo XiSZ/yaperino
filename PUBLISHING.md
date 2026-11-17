@@ -63,3 +63,14 @@ a password, but this keeps it out of the code.)
 Windows' ransomware protection (Controlled Folder Access) doesn't let git write inside
 Documents, so the repository's own data lives in `%LOCALAPPDATA%\Yaperino-git`. The small
 `.git` file here just points there. Git commands work in this folder as usual. Keep both.
+
+## Visitors, clones and downloads
+
+- GitHub's own numbers: the repository's **Insights > Traffic** page (last 14 days only).
+- The download badge at the top of the README counts all release downloads.
+- `.github/workflows/traffic.yml` saves views, clones, referrers, popular pages and download
+  counts once a day as CSV files on the `traffic-data` branch, so they're kept for good.
+  Traffic needs the repository secret `TRAFFIC_TOKEN`: a fine-grained personal access token
+  for this repository only, with "Administration: Read-only". When it expires, create a new
+  one and replace the secret; until then only download counts are saved (the run shows a
+  warning). Run it by hand any time: Actions > traffic > Run workflow.

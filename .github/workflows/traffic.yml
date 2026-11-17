@@ -1,0 +1,54 @@
+# Saves the repository's traffic (views, clones, where visitors came from, popular pages)
+# and the release download counts once a day, as CSV files on the "traffic-data" branch.
+# GitHub itself keeps traffic for 14 days only.
+#
+# Traffic needs a repository secret named TRAFFIC_TOKEN: a fine-grained personal access
+# token for this repository only, with the permission "Administration: Read-only"
+# (GitHub's own workflow token can't read traffic). Without it, only downloads are saved.
+name: traffic
+
+on:
+  schedule:
+    - cron: "37 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency: traffic
+
+jobs:
+  save:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Open the traffic-data branch
+        run: |
+          if git ls-remote --exit-code --heads origin traffic-data >/dev/null; then
+            git fetch --depth=1 origin traffic-data
+            git worktree add -B traffic-data data origin/traffic-data
+          else
+            git worktree add --orphan -b traffic-data data
+          fi
+
+      - name: Save traffic and downloads
+        env:
+          REPO: ${{ github.repository }}
+          DATA_DIR: data
+          GH_TOKEN: ${{ github.token }}
+          TRAFFIC_TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+        run: python3 .github/traffic/save.py
+
+      - name: Commit and push
+        working-directory: data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Nothing new today."
+            exit 0
+          fi
+          git commit -q -m "Traffic $(date -u +%F)"
+          git push -q origin traffic-data
