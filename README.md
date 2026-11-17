@@ -2,7 +2,13 @@
 
 # Yaperino
 
-[![Downloads](https://img.shields.io/github/downloads/XiSZ/yaperino/total?label=downloads)](https://github.com/XiSZ/yaperino/releases)
+<p align="center">
+  <a href="https://github.com/XiSZ/yaperino/actions/workflows/build.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/XiSZ/yaperino/build.yml?branch=main&label=build&labelColor=4a1da8&color=7b3fe4"></a>
+  <a href="https://github.com/XiSZ/yaperino/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/XiSZ/yaperino?sort=semver&label=release&labelColor=4a1da8&color=5c5be7"></a>
+  <a href="https://github.com/XiSZ/yaperino/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/XiSZ/yaperino/total?label=downloads&labelColor=4a1da8&color=3e77ea"></a>
+  <a href="#download-and-install"><img alt="Platforms: Windows, macOS, Linux" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-1f92ec?labelColor=4a1da8"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/github/license/XiSZ/yaperino?label=license&labelColor=4a1da8&color=00aeef"></a>
+</p>
 
 Yaperino is a desktop chat app for Windows (Linux and macOS: experimental) that puts **Twitch, Kick, YouTube and TikTok**
 chat in one window. It looks and works like [Chatterino](https://github.com/Chatterino/chatterino2),
