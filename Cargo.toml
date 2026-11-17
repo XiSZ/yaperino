@@ -18,7 +18,12 @@ path = "src/login_main.rs"
 required-features = ["linux-login"]
 
 [features]
-linux-login = ["dep:wry_linux", "dep:winit_linux", "dep:gtk"]
+# The Kick / YouTube sign-in window (wry + winit). On by default; the Linux release builds
+# Yaperino itself with --no-default-features, so only the helper needs WebKitGTK.
+default = ["webview"]
+webview = ["dep:wry", "dep:winit"]
+# Linux: the yaperino-login helper (the window plus GTK)
+linux-login = ["webview", "dep:gtk"]
 
 [dependencies]
 # x11 and wayland: the window on Linux (both do nothing on Windows and macOS)
@@ -41,15 +46,12 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 getrandom = "0.3"
 egui_extras = { version = "0.37", features = ["all_loaders", "http", "gif", "webp"] }
 
-# Sign-in pages (Kick, YouTube) in a small login window, so no developer app is needed.
-# On Linux only the yaperino-login helper has them (WebKitGTK), under other names.
-[target.'cfg(not(target_os = "linux"))'.dependencies]
-wry = "0.57"
-winit = "0.30"
+# Sign-in pages (Kick, YouTube) in a small login window, so no developer app is needed
+# (feature "webview")
+wry = { version = "0.57", optional = true }
+winit = { version = "0.30", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-wry_linux = { package = "wry", version = "0.57", optional = true }
-winit_linux = { package = "winit", version = "0.30", optional = true }
 gtk = { version = "0.18", optional = true }
 
 # Notifications for live channels on Linux (D-Bus, in pure Rust) and macOS

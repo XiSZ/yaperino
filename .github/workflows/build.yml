@@ -44,6 +44,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       YAPERINO_TWITCH_CLIENT_ID: ${{ secrets.YAPERINO_TWITCH_CLIENT_ID }}
+      # Linux: Yaperino itself without the sign-in window (no WebKitGTK); the helper has it
+      FEATURES: ${{ matrix.name == 'linux' && '--no-default-features' || '' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -55,11 +57,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Test
-        run: cargo test
+        run: cargo test $FEATURES
 
       - name: Build
         if: matrix.name != 'macos'
-        run: cargo build --release
+        run: cargo build --release $FEATURES
 
       # Linux: the Kick / YouTube sign-in window is a separate helper (yaperino-login), the
       # only part that needs WebKitGTK, so Yaperino itself starts without it

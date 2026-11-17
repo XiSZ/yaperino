@@ -9,14 +9,16 @@
 //! agent go back to the app over a pipe and the window closes by itself. Nothing is shown
 //! or logged. Each site keeps its own browser profile (`profile_dir`).
 
-// Linux: the helper's own copies of the window crates (Cargo.toml, feature "linux-login")
-#[cfg(all(target_os = "linux", feature = "linux-login"))]
-use {winit_linux as winit, wry_linux as wry};
-
 use std::path::PathBuf;
-#[cfg(any(not(target_os = "linux"), feature = "linux-login"))]
+#[cfg(all(
+    feature = "webview",
+    any(not(target_os = "linux"), feature = "linux-login")
+))]
 use std::sync::{Arc, Mutex};
-#[cfg(any(not(target_os = "linux"), feature = "linux-login"))]
+#[cfg(all(
+    feature = "webview",
+    any(not(target_os = "linux"), feature = "linux-login")
+))]
 use std::time::{Duration, Instant};
 
 /// The line the login window writes on its pipe, followed by the session as JSON.
@@ -84,7 +86,10 @@ pub fn url_decode(s: &str) -> String {
 }
 
 #[cfg_attr(
-    all(target_os = "linux", not(feature = "linux-login")),
+    not(all(
+        feature = "webview",
+        any(not(target_os = "linux"), feature = "linux-login")
+    )),
     allow(dead_code)
 )]
 struct Site {
@@ -96,7 +101,10 @@ struct Site {
 }
 
 #[cfg_attr(
-    all(target_os = "linux", not(feature = "linux-login")),
+    not(all(
+        feature = "webview",
+        any(not(target_os = "linux"), feature = "linux-login")
+    )),
     allow(dead_code)
 )]
 fn site(name: &str) -> Option<Site> {
@@ -188,13 +196,19 @@ const WEBKIT_HINT: &str = "It needs WebKitGTK 4.1: on Ubuntu / Debian \
 // Windows (WebView2), macOS (WKWebView) and, in the yaperino-login helper, Linux
 // (WebKitGTK inside an X11 window). The Linux app without the helper only reports that.
 
-#[cfg(all(target_os = "linux", not(feature = "linux-login")))]
+#[cfg(not(all(
+    feature = "webview",
+    any(not(target_os = "linux"), feature = "linux-login")
+)))]
 pub fn run(_site_name: &str) -> i32 {
     eprintln!("This sign-in window is the yaperino-login program on Linux");
     5
 }
 
-#[cfg(any(not(target_os = "linux"), feature = "linux-login"))]
+#[cfg(all(
+    feature = "webview",
+    any(not(target_os = "linux"), feature = "linux-login")
+))]
 struct Login {
     site: Site,
     context: wry::WebContext,
@@ -207,7 +221,10 @@ struct Login {
     failed: bool,
 }
 
-#[cfg(any(not(target_os = "linux"), feature = "linux-login"))]
+#[cfg(all(
+    feature = "webview",
+    any(not(target_os = "linux"), feature = "linux-login")
+))]
 impl winit::application::ApplicationHandler for Login {
     fn resumed(&mut self, el: &winit::event_loop::ActiveEventLoop) {
         if self.window.is_some() {
@@ -310,7 +327,10 @@ impl winit::application::ApplicationHandler for Login {
 }
 
 /// `--web-login <site>`: runs the login window; returns the process exit code.
-#[cfg(any(not(target_os = "linux"), feature = "linux-login"))]
+#[cfg(all(
+    feature = "webview",
+    any(not(target_os = "linux"), feature = "linux-login")
+))]
 pub fn run(site_name: &str) -> i32 {
     let Some(site) = site(site_name) else {
         return 2;
