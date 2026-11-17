@@ -151,6 +151,9 @@ pub struct Settings {
     /// Chatterino's completion: suggestions while typing :emote / @user, and Tab completion.
     pub completion_popup: bool,
     pub tab_completion: bool,
+    /// Moltorino's emote carousel: emote suggestions as a row of pictures that slides with
+    /// each Tab press (instead of a list), also while Tab cycles through matches.
+    pub emote_carousel: bool,
     /// The message length counter and the live dot on tabs.
     pub input_counter: bool,
     pub tab_live_dot: bool,
@@ -302,6 +305,7 @@ impl Default for Settings {
             message_limit: MAX_CHAT_LINES,
             completion_popup: true,
             tab_completion: true,
+            emote_carousel: true,
             input_counter: true,
             tab_live_dot: true,
             highlight_badges: Vec::new(),
@@ -373,10 +377,11 @@ struct ChatTab {
     history: Vec<String>,
     history_pos: usize,
     /// Completion (Chatterino): the selected suggestion, the word whose suggestions were
-    /// closed with Escape, and Tab cycling (matches, position, last inserted word).
+    /// closed with Escape, and Tab cycling (matches with their pictures, position, last
+    /// inserted word).
     ac_sel: usize,
     ac_dismissed: Option<String>,
-    tab_cycle: Option<(Vec<String>, usize, String)>,
+    tab_cycle: Option<(Vec<(String, Option<String>)>, usize, String)>,
     /// An image pasted into the message box, waiting for "Upload" (Image Uploader).
     pending_image: Option<Arc<egui::ColorImage>>,
     /// The message the next Twitch message answers (message menu > Reply).

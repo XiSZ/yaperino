@@ -1728,11 +1728,13 @@ impl LiveApp {
         // ---- completion (Chatterino / chatterino7 / Moltorino / Chatty): ":em" suggests
         // emotes, "@us" suggests chatters while typing; Tab completes and cycles
         let input_id = id.with("input");
-        let shot_complete =
-            self.shot.is_some() && pos == 0 && std::env::var("LIVE_STREAMS_SHOT_COMPLETE").is_ok();
+        let shot_typed = std::env::var("LIVE_STREAMS_SHOT_CAROUSEL").ok();
+        let shot_complete = self.shot.is_some()
+            && pos == 0
+            && (std::env::var("LIVE_STREAMS_SHOT_COMPLETE").is_ok() || shot_typed.is_some());
         if shot_complete && self.chats[idx].input.is_empty() {
-            // screenshot test only: a half-typed @mention
-            self.chats[idx].input = "hey @a".into();
+            // screenshot test only: a half-typed @mention, or the given text
+            self.chats[idx].input = shot_typed.unwrap_or_else(|| "hey @a".into());
         }
         let focused_input = shot_complete || ui.ctx().memory(|m| m.has_focus(input_id));
         let text_now = self.chats[idx].input.clone();
@@ -1755,12 +1757,18 @@ impl LiveApp {
                 Vec::new()
             };
         let mut accept: Option<String> = None;
+        // the emote carousel: emote suggestions as a sliding row; Tab moves along it and
+        // Enter takes the chosen one
+        let carousel = self.settings.emote_carousel && word.starts_with(':');
         if focused_input && !popup_items.is_empty() {
             let n = popup_items.len();
             let tab = &mut self.chats[idx];
             tab.ac_sel = tab.ac_sel.min(n - 1);
             ui.ctx().input_mut(|i| {
-                if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+                    || (carousel && i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight))
+                    || (carousel && n > 1 && i.consume_key(egui::Modifiers::NONE, egui::Key::Tab))
+                {
                     tab.ac_sel = (tab.ac_sel + 1) % n;
                 }
                 // Shift+Tab: the suggestion before (Chatterino); with Shift held these keys
@@ -1768,6 +1776,7 @@ impl LiveApp {
                 // the following Enter would press it (it opened the emote window)
                 if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
                     || i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab)
+                    || (carousel && i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft))
                 {
                     tab.ac_sel = (tab.ac_sel + n - 1) % n;
                 }
@@ -1805,25 +1814,25 @@ impl LiveApp {
                             Some(q) => (true, q),
                             None => (false, word.as_str()),
                         };
-                        let mut m: Vec<String> = Vec::new();
+                        let mut m: Vec<(String, Option<String>)> = Vec::new();
                         if !users_only {
                             m.extend(
                                 self.complete_emotes(idx, q, 50)
                                     .into_iter()
                                     .filter(|c| c.prefix)
-                                    .map(|c| c.insert),
+                                    .map(|c| (c.insert, c.image)),
                             );
                         }
                         m.extend(
                             self.complete_users(idx, q, 50, users_only)
                                 .into_iter()
                                 .filter(|c| c.prefix)
-                                .map(|c| c.insert),
+                                .map(|c| (c.insert, c.image)),
                         );
                         (m, 0)
                     }
                 };
-                if let Some(pick) = matches.get(pos).cloned() {
+                if let Some(pick) = matches.get(pos).map(|(name, _)| name.clone()) {
                     self.chats[idx].tab_cycle = Some((matches, pos, pick.clone()));
                     let mut t = text_now[..word_start].to_string();
                     t.push_str(&pick);
@@ -2211,14 +2220,65 @@ impl LiveApp {
                 ui.label(egui::RichText::new(counter).size(11.0).color(dim));
             }
         });
-        // the suggestion list above the message box
-        if !popup_items.is_empty() {
+        let popup_at = input_rect.left_top() + Vec2::new(6.0, -2.0);
+        // while Tab cycles through matches without the list: the carousel shows them all,
+        // so the next picks can be seen before they are sent
+        let cycle = self.chats[idx].tab_cycle.clone().filter(|(m, _, last)| {
+            let input = &self.chats[idx].input;
+            let cur = &input[input.rfind(char::is_whitespace).map_or(0, |i| i + 1)..];
+            m.len() > 1 && m.iter().any(|(_, img)| img.is_some()) && last == cur
+        });
+        if let (true, true, Some((matches, pos, _))) = (
+            popup_items.is_empty() && focused_input,
+            self.settings.emote_carousel,
+            cycle,
+        ) {
+            if let Some(i) = emote_carousel(
+                ui.ctx(),
+                id.with("tab-carousel"),
+                popup_at,
+                &matches,
+                pos,
+                "Tab: next   Shift+Tab: back",
+            ) {
+                let pick = matches[i].0.clone();
+                let input = self.chats[idx].input.clone();
+                let start = input.rfind(char::is_whitespace).map_or(0, |i| i + 1);
+                self.chats[idx].input = format!("{}{pick}", &input[..start]);
+                self.chats[idx].tab_cycle = Some((matches, i, pick));
+                set_cursor_end(ui.ctx(), input_id, &self.chats[idx].input);
+                ui.ctx().memory_mut(|m| m.request_focus(input_id));
+            }
+        }
+        // the suggestions above the message box: the emote carousel, or a list
+        if !popup_items.is_empty() && carousel {
+            let sel = self.chats[idx].ac_sel.min(popup_items.len() - 1);
+            let items: Vec<(String, Option<String>)> = popup_items
+                .iter()
+                .map(|c| (c.label.clone(), c.image.clone()))
+                .collect();
+            if let Some(i) = emote_carousel(
+                ui.ctx(),
+                id.with("completion"),
+                popup_at,
+                &items,
+                sel,
+                "Tab / arrows: choose   Enter: complete   Esc: close",
+            ) {
+                let mut t = text_now[..word_start].to_string();
+                t.push_str(&popup_items[i].insert);
+                t.push(' ');
+                self.chats[idx].input = t;
+                set_cursor_end(ui.ctx(), input_id, &self.chats[idx].input);
+                ui.ctx().memory_mut(|m| m.request_focus(input_id));
+            }
+        } else if !popup_items.is_empty() {
             let sel = self.chats[idx].ac_sel.min(popup_items.len() - 1);
             let mut clicked: Option<String> = None;
             egui::Area::new(id.with("completion"))
                 .order(egui::Order::Foreground)
                 .pivot(egui::Align2::LEFT_BOTTOM)
-                .fixed_pos(input_rect.left_top() + Vec2::new(6.0, -2.0))
+                .fixed_pos(popup_at)
                 .show(ui.ctx(), |ui| {
                     egui::Frame::popup(ui.style()).show(ui, |ui| {
                         ui.set_min_width(240.0);
@@ -3003,6 +3063,125 @@ fn drop_before(places: &[(usize, egui::Rect)], pos: egui::Pos2, vertical: bool) 
     })
 }
 
+/// Which suggestions the emote carousel shows: all of them when they fit (7), else a window
+/// of 7 with the chosen one in the middle, wrapping around the ends.
+fn carousel_window(n: usize, sel: usize) -> Vec<usize> {
+    const SHOWN: usize = 7;
+    if n <= SHOWN {
+        return (0..n).collect();
+    }
+    let start = (sel + n - SHOWN / 2) % n;
+    (0..SHOWN).map(|k| (start + k) % n).collect()
+}
+
+/// The emote carousel (Moltorino): suggestions as a row of pictures above the message box,
+/// the chosen one bigger and highlighted, names underneath. Returns a clicked one's index.
+fn emote_carousel(
+    ctx: &egui::Context,
+    id: egui::Id,
+    at: egui::Pos2,
+    items: &[(String, Option<String>)],
+    sel: usize,
+    hint: &str,
+) -> Option<usize> {
+    if items.is_empty() {
+        return None;
+    }
+    let sel = sel.min(items.len() - 1);
+    let theme = crate::style::theme::c();
+    let mut clicked = None;
+    egui::Area::new(id)
+        .order(egui::Order::Foreground)
+        .pivot(egui::Align2::LEFT_BOTTOM)
+        .fixed_pos(at)
+        .show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    for i in carousel_window(items.len(), sel) {
+                        let (name, image) = &items[i];
+                        let chosen = i == sel;
+                        let (rect, r) =
+                            ui.allocate_exact_size(Vec2::new(68.0, 66.0), Sense::click());
+                        if chosen {
+                            ui.painter()
+                                .rect_filled(rect, 6.0, theme.accent.gamma_multiply(0.28));
+                        } else if r.hovered() {
+                            ui.painter().rect_filled(
+                                rect,
+                                6.0,
+                                ui.visuals().widgets.hovered.weak_bg_fill,
+                            );
+                        }
+                        let picture = Rect::from_center_size(
+                            rect.center() - Vec2::new(0.0, 7.0),
+                            Vec2::new(60.0, if chosen { 42.0 } else { 30.0 }),
+                        );
+                        match image {
+                            Some(url) => {
+                                let img = egui::Image::new(url.as_str()).tint(if chosen {
+                                    Color32::WHITE
+                                } else {
+                                    Color32::from_white_alpha(150)
+                                });
+                                // keep the emote's shape: as big as fits, wide ones stay wide
+                                let size = img
+                                    .load_for_size(ui.ctx(), picture.size())
+                                    .ok()
+                                    .and_then(|t| t.size())
+                                    .filter(|s| s.x > 0.0 && s.y > 0.0)
+                                    .unwrap_or(Vec2::splat(picture.height()));
+                                let scale =
+                                    (picture.width() / size.x).min(picture.height() / size.y);
+                                img.paint_at(
+                                    ui,
+                                    Rect::from_center_size(picture.center(), size * scale),
+                                );
+                            }
+                            None => {
+                                ui.painter().text(
+                                    picture.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    "@",
+                                    egui::FontId::proportional(if chosen { 24.0 } else { 18.0 }),
+                                    theme.system,
+                                );
+                            }
+                        }
+                        let short: String = if name.chars().count() > 9 {
+                            name.chars().take(8).chain(['…']).collect()
+                        } else {
+                            name.clone()
+                        };
+                        ui.painter().text(
+                            rect.center_bottom() - Vec2::new(0.0, 4.0),
+                            egui::Align2::CENTER_BOTTOM,
+                            short,
+                            egui::FontId::proportional(11.0),
+                            if chosen {
+                                theme.strong_text
+                            } else {
+                                theme.system
+                            },
+                        );
+                        if r.on_hover_text(name.as_str()).clicked() {
+                            clicked = Some(i);
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&items[sel].0)
+                            .strong()
+                            .color(theme.strong_text),
+                    );
+                    ui.weak(format!("{} / {}   {hint}", sel + 1, items.len()));
+                });
+            });
+        });
+    clicked
+}
+
 /// Puts the text cursor at the end of a message box after it was filled in.
 fn set_cursor_end(ctx: &egui::Context, id: egui::Id, text: &str) {
     if let Some(mut st) = egui::text_edit::TextEditState::load(ctx, id) {
@@ -3648,7 +3827,7 @@ fn move_item<T>(v: &mut Vec<T>, from: usize, to: usize, shown: usize) -> usize {
 
 #[cfg(test)]
 mod tab_move_tests {
-    use super::{drop_before, local_command, move_item, LocalCmd};
+    use super::{carousel_window, drop_before, local_command, move_item, LocalCmd};
 
     #[test]
     fn dropping_a_tab_into_wrapped_rows() {
@@ -3719,5 +3898,16 @@ mod tab_move_tests {
         // dropping on its own place changes nothing
         assert_eq!(move_item(&mut v, 1, 2, 0), 0);
         assert_eq!(v, ['a', 'd', 'b', 'c']);
+    }
+
+    #[test]
+    fn the_emote_carousel_keeps_the_chosen_one_in_the_middle() {
+        // few suggestions: all of them, in order
+        assert_eq!(carousel_window(3, 2), [0, 1, 2]);
+        // many: 7 around the chosen one, wrapping around the ends
+        assert_eq!(carousel_window(20, 10), [7, 8, 9, 10, 11, 12, 13]);
+        assert_eq!(carousel_window(20, 0), [17, 18, 19, 0, 1, 2, 3]);
+        assert_eq!(carousel_window(20, 19), [16, 17, 18, 19, 0, 1, 2]);
+        assert_eq!(carousel_window(0, 0), Vec::<usize>::new());
     }
 }

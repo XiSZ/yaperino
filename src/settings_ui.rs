@@ -1288,6 +1288,10 @@ impl LiveApp {
             "Suggest emotes while typing :name and chatters while typing @name",
         );
         ui.checkbox(&mut self.settings.tab_completion, "Tab completes emotes and user names (press again for the next match, Shift+Tab goes back)");
+        ui.checkbox(
+            &mut self.settings.emote_carousel,
+            "Emote carousel: show emote suggestions as a row of pictures that slides with each Tab press",
+        );
         heading(ui, "Message box", TEXT);
         ui.checkbox(&mut self.settings.input_counter, "Show the message length");
         heading(ui, "Split header", TEXT);
