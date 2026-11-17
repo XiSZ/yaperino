@@ -169,7 +169,7 @@ pub fn chat_lines() -> Vec<ChatLine> {
         user_id: String::new(),
         reply: None,
     };
-    vec![
+    let mut lines = vec![
         ChatLine::System("Sample chat (screenshot mode)".into()),
         m(
             "18:02",
@@ -213,8 +213,40 @@ pub fn chat_lines() -> Vec<ChatLine> {
             [255, 80, 80],
             "watching on YouTube",
         ),
-    ]
+    ];
+    // screenshot test only: a reply to AnotherViewer's message (LIVE_STREAMS_SHOT_REPLY)
+    if std::env::var("LIVE_STREAMS_SHOT_REPLY").is_ok()
+        || std::env::var("LIVE_STREAMS_SHOT_THREAD").is_ok()
+    {
+        if let Some(ChatLine::Msg { msg_id, .. }) = lines.get_mut(2) {
+            *msg_id = DEMO_THREAD.into();
+        }
+        let mut reply = m(
+            "18:03",
+            "third_person",
+            [50, 205, 50],
+            "the clutch was insane",
+            "",
+        );
+        if let ChatLine::Msg {
+            reply: r, msg_id, ..
+        } = &mut reply
+        {
+            *msg_id = "demo-reply".into();
+            *r = Some(Box::new(crate::chat::Reply {
+                parent_id: DEMO_THREAD.into(),
+                parent_name: "AnotherViewer".into(),
+                parent_body: "good stream today EZ Clap".into(),
+                thread_id: DEMO_THREAD.into(),
+            }));
+        }
+        lines.insert(4, reply);
+    }
+    lines
 }
+
+/// The sample reply thread's first message (screenshot mode).
+pub const DEMO_THREAD: &str = "demo-thread";
 
 fn other(platform: Platform, t: &str, n: &str, c: [u8; 3], x: &str) -> ChatLine {
     ChatLine::Msg {

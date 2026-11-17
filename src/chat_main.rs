@@ -94,6 +94,8 @@ struct MainActions {
     set_tab_layout: Option<String>,
     /// A moderation action in a split's (Twitch) channel.
     moderate: Option<(String, crate::moderation::ModAction)>,
+    /// A clicked "Replying to" line: show the reply thread (the split's key, thread id).
+    thread: Option<(String, String)>,
     /// A clicked name: open its usercard (the split's key, the user).
     usercard: Option<(String, crate::style::UserRef)>,
     /// The sword in a split's header: moderation mode on / off for this Twitch channel.
@@ -1314,6 +1316,7 @@ impl LiveApp {
 
         self.emote_menu_window(ui.ctx(), &mut act);
         self.chatters_window(ui.ctx());
+        self.thread_window(ui.ctx(), &mut act);
         if let Some((group, a)) = self.usercard_window(ui.ctx()) {
             use super::usercard::CardAction;
             match a {
@@ -1834,6 +1837,13 @@ impl LiveApp {
             }
             Some(crate::style::LineAction::Hide(u)) => act.hide_user = Some((u, true)),
             Some(crate::style::LineAction::OpenChannel(c)) => act.open_channel = Some(c),
+            // message menu > Reply: the next message answers it; the box gets the cursor
+            Some(crate::style::LineAction::Reply(r)) => {
+                tab.reply_to = Some(r);
+                ui.ctx().memory_mut(|m| m.request_focus(input_id));
+                act.focus = Some(key.to_string());
+            }
+            Some(crate::style::LineAction::Thread(t)) => act.thread = Some((key.to_string(), t)),
             None => {}
         }
         if ui
@@ -1896,6 +1906,53 @@ impl LiveApp {
             }
         }
 
+        if self.shot.is_some()
+            && pos == 0
+            && tab.reply_to.is_none()
+            && std::env::var("LIVE_STREAMS_SHOT_REPLY").is_ok()
+        {
+            // screenshot test only: writing a reply
+            tab.reply_to = Some(crate::chat::Reply {
+                parent_id: "x".into(),
+                parent_name: "viewer_one".into(),
+                parent_body: "hello chat Kappa".into(),
+                thread_id: "x".into(),
+            });
+        }
+        if let (Some(r), None) = (tab.reply_to.clone(), &tab.pending_image) {
+            let bar = egui::Rect::from_min_max(
+                egui::Pos2::new(full.left(), input_rect.top() - 26.0),
+                egui::Pos2::new(full.right(), input_rect.top()),
+            );
+            let pal = crate::style::theme::c();
+            ui.painter().rect_filled(bar, 0.0, pal.shade(24));
+            ui.painter().vline(
+                bar.left() + 1.5,
+                bar.y_range(),
+                egui::Stroke::new(3.0, pal.accent),
+            );
+            let mut b = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(bar.shrink2(Vec2::new(10.0, 2.0)))
+                    .layout(egui::Layout::left_to_right(egui::Align::Center)),
+            );
+            let body: String = r.parent_body.chars().take(80).collect();
+            if b.add(egui::Button::new("✕").frame(false))
+                .on_hover_text("Don't reply (Esc)")
+                .clicked()
+                || (ui.ctx().memory(|m| m.has_focus(input_id))
+                    && ui.input(|i| i.key_pressed(egui::Key::Escape)))
+            {
+                tab.reply_to = None;
+            }
+            b.add(
+                egui::Label::new(
+                    egui::RichText::new(format!("Replying to @{}: {body}", r.parent_name))
+                        .color(pal.text),
+                )
+                .truncate(),
+            );
+        }
         ui.painter()
             .rect_filled(input_rect, 0.0, crate::style::theme::c().input_bg);
         let mut row = ui.new_child(
@@ -2145,6 +2202,84 @@ impl LiveApp {
                 set_cursor_end(ui.ctx(), input_id, &self.chats[idx].input);
                 ui.ctx().memory_mut(|m| m.request_focus(input_id));
             }
+        }
+    }
+
+    /// A reply thread (Chatterino's reply thread popup): its first message and every reply,
+    /// in the chat's look; "Reply in thread" answers the newest one.
+    fn thread_window(&mut self, ctx: &egui::Context, act: &mut MainActions) {
+        if self.shot.is_some()
+            && self.thread.is_none()
+            && std::env::var("LIVE_STREAMS_SHOT_THREAD").is_ok()
+        {
+            // screenshot test only: the sample reply thread
+            if let Some(t) = self.chats.first() {
+                self.thread = Some((t.login.clone(), crate::demo::DEMO_THREAD.into()));
+            }
+        }
+        let Some((key, thread)) = self.thread.clone() else {
+            return;
+        };
+        let Some(idx) = self.chat_index(&key) else {
+            self.thread = None;
+            return;
+        };
+        let lines: std::collections::VecDeque<ChatLine> = self.chats[idx]
+            .lines
+            .iter()
+            .filter(|l| match l {
+                ChatLine::Msg { msg_id, reply, .. } => {
+                    *msg_id == thread || reply.as_ref().is_some_and(|r| r.thread_id == thread)
+                }
+                _ => false,
+            })
+            .cloned()
+            .collect();
+        let look = self.chat_look(None);
+        let channel = self.chats[idx]
+            .twitch
+            .clone()
+            .unwrap_or_else(|| self.chats[idx].login.clone());
+        let mut open = true;
+        let mut reply_now = false;
+        egui::Window::new(format!("Reply thread · {} messages", lines.len()))
+            .id(egui::Id::unique("reply-thread"))
+            .open(&mut open)
+            .collapsible(false)
+            .default_size([460.0, 320.0])
+            .show(ctx, |ui| {
+                if lines.is_empty() {
+                    ui.weak("The thread's messages aren't in this chat any more.");
+                }
+                let h = (ui.available_height() - 36.0).max(80.0);
+                ui.allocate_ui(Vec2::new(ui.available_width(), h), |ui| {
+                    if let Some(crate::style::LineAction::UserCard(u)) =
+                        crate::style::chat_lines(ui, &lines, &self.emotes, &channel, &look)
+                    {
+                        act.usercard = Some((key.clone(), u));
+                    }
+                });
+                if ui.button("Reply in thread").clicked() {
+                    reply_now = true;
+                }
+            });
+        if reply_now {
+            // answer the newest message of the thread
+            if let Some(ChatLine::Msg {
+                name, text, msg_id, ..
+            }) = lines.back()
+            {
+                self.chats[idx].reply_to = Some(crate::chat::Reply {
+                    parent_id: msg_id.clone(),
+                    parent_name: name.clone(),
+                    parent_body: text.clone(),
+                    thread_id: thread.clone(),
+                });
+                act.focus = Some(key.clone());
+            }
+        }
+        if !open {
+            self.thread = None;
         }
     }
 
@@ -2637,6 +2772,9 @@ impl LiveApp {
         }
         if let Some((key, m)) = act.moderate {
             self.moderate(&key, m);
+        }
+        if let Some(t) = act.thread {
+            self.thread = Some(t);
         }
         if let Some((key, user)) = act.usercard {
             self.open_usercard(&key, user);

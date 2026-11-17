@@ -704,6 +704,10 @@ pub enum LineAction {
     OpenChannel(String),
     /// A clicked user name: open the usercard.
     UserCard(UserRef),
+    /// Message menu > Reply: the next message answers this one.
+    Reply(crate::chat::Reply),
+    /// A clicked "Replying to" line: show that reply thread (its first message's id).
+    Thread(String),
 }
 
 /// Who a clicked name belongs to.
@@ -836,6 +840,7 @@ pub fn chat_lines(
                 let mut mod_hits: Vec<(egui::Rect, crate::moderation::ModAction)> = Vec::new();
                 let mut chan_hits: Vec<(egui::Rect, String)> = Vec::new();
                 let mut name_hits: Vec<(egui::Rect, UserRef)> = Vec::new();
+                let mut reply_hits: Vec<(egui::Rect, String)> = Vec::new();
                 let r = frame.show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     draw_line(
@@ -851,6 +856,7 @@ pub fn chat_lines(
                         &mut mod_hits,
                         &mut chan_hits,
                         &mut name_hits,
+                        &mut reply_hits,
                     );
                 });
                 if look.separators {
@@ -894,12 +900,20 @@ pub fn chat_lines(
                             .map(|(_, u)| u.clone())
                     }) {
                         insert = Some(LineAction::UserCard(u));
+                    } else if let Some(t) = at.and_then(|p| {
+                        reply_hits
+                            .iter()
+                            .find(|(r, _)| r.contains(p))
+                            .map(|(_, t)| t.clone())
+                    }) {
+                        insert = Some(LineAction::Thread(t));
                     }
                 }
                 if menu.hovered()
                     && menu.hover_pos().is_some_and(|p| {
                         chan_hits.iter().any(|(r, _)| r.contains(p))
                             || name_hits.iter().any(|(r, _)| r.contains(p))
+                            || reply_hits.iter().any(|(r, _)| r.contains(p))
                     })
                 {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -933,6 +947,29 @@ pub fn chat_lines(
                         ),
                         ChatLine::System(t) => (t.clone(), None, t.clone()),
                     };
+                    // Twitch replies (Chatterino's message menu > Reply)
+                    if let ChatLine::Msg {
+                        name,
+                        text,
+                        msg_id,
+                        reply,
+                        platform: crate::platforms::Platform::Twitch,
+                        ..
+                    } = line
+                    {
+                        if !msg_id.is_empty() && ui.button("Reply").clicked() {
+                            insert = Some(LineAction::Reply(crate::chat::Reply {
+                                parent_id: msg_id.clone(),
+                                parent_name: name.clone(),
+                                parent_body: text.clone(),
+                                thread_id: reply
+                                    .as_ref()
+                                    .map(|r| r.thread_id.clone())
+                                    .unwrap_or_else(|| msg_id.clone()),
+                            }));
+                            ui.close();
+                        }
+                    }
                     if ui.button("Copy message").clicked() {
                         ui.ctx().copy_text(body);
                         ui.close();
@@ -1081,6 +1118,7 @@ fn draw_line(
     mod_hits: &mut Vec<(egui::Rect, crate::moderation::ModAction)>,
     chan_hits: &mut Vec<(egui::Rect, String)>,
     name_hits: &mut Vec<(egui::Rect, UserRef)>,
+    reply_hits: &mut Vec<(egui::Rect, String)>,
 ) {
     match line {
         ChatLine::Msg {
@@ -1095,9 +1133,28 @@ fn draw_line(
             own,
             msg_id,
             user_id,
+            reply,
             ..
         } => {
             let nc = name_color(*color, name);
+            // a reply: what it answers, small, above it (Chatterino); a click opens the thread
+            if let Some(r) = reply {
+                let body: String = r.parent_body.chars().take(90).collect();
+                let more = if r.parent_body.chars().count() > 90 {
+                    "…"
+                } else {
+                    ""
+                };
+                let resp = ui.add(
+                    egui::Label::new(
+                        RichText::new(format!("↪ Replying to @{}: {body}{more}", r.parent_name))
+                            .size(font.size * 0.85)
+                            .color(theme::c().tab_text),
+                    )
+                    .truncate(),
+                );
+                reply_hits.push((resp.rect, r.thread_id.clone()));
+            }
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 if look.timestamps {

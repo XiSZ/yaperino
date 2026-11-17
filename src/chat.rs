@@ -253,10 +253,9 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
                     } else if !msg.trim().is_empty() {
                         // a reply carries the answered message's id (Twitch's reply tag)
                         let raw = match &reply {
-                            Some(r) => format!(
-                                "@reply-parent-msg-id={} PRIVMSG #{ch} :{msg}",
-                                r.parent_id
-                            ),
+                            Some(r) => {
+                                format!("@reply-parent-msg-id={} PRIVMSG #{ch} :{msg}", r.parent_id)
+                            }
                             None => format!("PRIVMSG #{ch} :{msg}"),
                         };
                         text(&mut ws, raw)?;
@@ -424,7 +423,10 @@ fn reply_prefix_len(text: &str, login: &str, display: &str) -> Option<usize> {
     let word = text.strip_prefix('@')?.split(' ').next()?;
     let matches = (!login.is_empty() && word.eq_ignore_ascii_case(login))
         || (!display.is_empty() && word.eq_ignore_ascii_case(display));
-    matches.then(|| 1 + word.chars().count() + usize::from(text.chars().nth(1 + word.chars().count()) == Some(' ')))
+    matches.then(|| {
+        1 + word.chars().count()
+            + usize::from(text.chars().nth(1 + word.chars().count()) == Some(' '))
+    })
 }
 
 /// A USERSTATE's tags: moderator there (mod=1), or its broadcaster.
@@ -630,6 +632,49 @@ fn windows_offset() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reply_tags_cut_the_mention_and_move_the_emotes() {
+        let raw = concat!(
+            "@badges=;color=;display-name=Bob;emotes=25:7-11;id=m2;",
+            "reply-parent-display-name=Alice;reply-parent-msg-body=hi;",
+            "reply-parent-msg-id=m1;reply-parent-user-login=alice;",
+            "reply-thread-parent-msg-id=m0;user-id=2 ",
+            ":bob!bob@bob.tmi.twitch.tv PRIVMSG #chan :@alice Kappa yes"
+        );
+        let p = parse(raw).unwrap();
+        let (ch, line) = to_line(&p).unwrap();
+        assert_eq!(ch.as_deref(), Some("chan"));
+        let ChatLine::Msg {
+            text,
+            emotes,
+            reply,
+            ..
+        } = line
+        else {
+            panic!("not a message");
+        };
+        assert_eq!(text, "Kappa yes");
+        assert_eq!(emotes, vec![(0, 4, "25".to_string())]);
+        let r = reply.unwrap();
+        assert_eq!(
+            (
+                r.parent_id.as_str(),
+                r.parent_name.as_str(),
+                r.parent_body.as_str(),
+                r.thread_id.as_str()
+            ),
+            ("m1", "Alice", "hi", "m0")
+        );
+    }
+
+    #[test]
+    fn reply_prefix() {
+        assert_eq!(reply_prefix_len("@alice hi", "alice", "Alice"), Some(7));
+        assert_eq!(reply_prefix_len("@Alice hi", "alice", ""), Some(7));
+        assert_eq!(reply_prefix_len("@bob hi", "alice", "Alice"), None);
+        assert_eq!(reply_prefix_len("hi @alice", "alice", "Alice"), None);
+    }
 
     #[test]
     fn moderator_in_a_channel() {

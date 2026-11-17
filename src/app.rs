@@ -558,6 +558,8 @@ pub struct LiveApp {
     mod_in: HashSet<String>,
     /// The open usercard (Chatterino's user popup), if any.
     usercard: Option<usercard::UserCard>,
+    /// The open reply thread: (tab key, the thread's first message id).
+    thread: Option<(String, String)>,
     account: Option<Account>,
     account_status: String,
     account_loading: bool,
@@ -746,6 +748,7 @@ impl LiveApp {
             chat_name: None,
             mod_in: HashSet::new(),
             usercard: None,
+            thread: None,
             account: None,
             account_status: "Not signed in".into(),
             account_loading: false,
