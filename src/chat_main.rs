@@ -876,18 +876,36 @@ impl LiveApp {
         }
     }
 
-    /// The tabs and the "+" (new tab): in a row, or a column for tabs on the left or right.
+    /// The tabs and the "+" (new tab). At the top or bottom they wrap onto more rows when they
+    /// don't fit (Chatterino); on the left or right the column scrolls.
     fn tab_strip(&mut self, ui: &mut egui::Ui, act: &mut MainActions, vertical: bool) {
-        let layout = if vertical {
-            egui::Layout::top_down(egui::Align::Min)
+        if vertical {
+            egui::ScrollArea::vertical()
+                .id_salt("tab-column")
+                .auto_shrink([false, false])
+                .show(ui, |ui| self.tab_strip_inner(ui, act, true));
         } else {
-            egui::Layout::left_to_right(egui::Align::Center)
-        };
-        ui.with_layout(layout, |ui| {
+            self.tab_strip_inner(ui, act, false);
+        }
+    }
+
+    fn tab_strip_inner(&mut self, ui: &mut egui::Ui, act: &mut MainActions, vertical: bool) {
+        if vertical {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                self.tab_items(ui, act, true)
+            });
+        } else {
+            // a row that wraps onto more rows and only takes the height they need
+            ui.horizontal_wrapped(|ui| self.tab_items(ui, act, false));
+        }
+    }
+
+    fn tab_items(&mut self, ui: &mut egui::Ui, act: &mut MainActions, vertical: bool) {
+        {
             ui.spacing_mut().item_spacing = if vertical {
                 Vec2::new(0.0, 1.0)
             } else {
-                Vec2::new(1.0, 0.0)
+                Vec2::new(1.0, 1.0)
             };
             if self.shot.is_some() && std::env::var("LIVE_STREAMS_SHOT_MOLT").is_ok() {
                 // screenshot test only: coloured tabs and source backgrounds
@@ -909,6 +927,39 @@ impl LiveApp {
                 && !self.pages.iter().any(|pg| pg.splits.is_empty())
             {
                 self.new_empty_tab();
+            }
+            if self.shot.is_some()
+                && std::env::var("LIVE_STREAMS_SHOT_MANY_TABS").is_ok()
+                && self.pages.len() < 6
+            {
+                // screenshot test only: more tabs than fit in one row
+                for name in [
+                    "Northwind",
+                    "PixelMaple",
+                    "Quillfox",
+                    "Bramblecat",
+                    "Tidewalker",
+                    "Lumenberry",
+                    "Marigold",
+                    "Orbitjay",
+                    "Emberlyn",
+                    "Velvetoak",
+                    "Snowpetal",
+                    "Fernlight",
+                    "Rainhollow",
+                    "Ashgrove",
+                    "Driftwick",
+                    "Moonfern",
+                    "Sparrowind",
+                    "Cobaltreed",
+                    "Hazelmoor",
+                    "Brightwater",
+                ] {
+                    self.pages.push(TabPage {
+                        title: name.to_string(),
+                        ..TabPage::default()
+                    });
+                }
             }
             let layout_locked = self.settings.tabs_locked;
             // the shown tabs' places, for dropping a dragged tab between them
@@ -1016,10 +1067,7 @@ impl LiveApp {
                 if layout_locked || from >= self.pages.len() || pointer.is_none() {
                     self.tab_drag = None;
                 } else if let Some(pos) = pointer {
-                    let along = |v: egui::Pos2| if vertical { v.y } else { v.x };
-                    let before = places
-                        .iter()
-                        .position(|(_, r)| along(pos) < along(r.center()));
+                    let before = drop_before(&places, pos, vertical);
                     let to = before.map(|i| places[i].0).unwrap_or(self.pages.len());
                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                     // the insertion line
@@ -1068,7 +1116,7 @@ impl LiveApp {
             {
                 act.new_tab = true;
             }
-        });
+        }
     }
 
     pub(super) fn main_window(&mut self, ui: &mut egui::Ui) {
@@ -2645,6 +2693,20 @@ struct Completion {
     prefix: bool,
 }
 
+/// Where a dragged tab would go: the index (in `places`, the shown tabs in order) of the tab
+/// it lands in front of, or None for the end. Tabs at the top or bottom can wrap onto more
+/// rows, so a row counts first: above a tab's row is before it, and within its row so is the
+/// left half of it. In a column (tabs on the left or right) only the height counts.
+fn drop_before(places: &[(usize, egui::Rect)], pos: egui::Pos2, vertical: bool) -> Option<usize> {
+    places.iter().position(|(_, r)| {
+        if vertical {
+            pos.y < r.center().y
+        } else {
+            pos.y < r.top() || (pos.y <= r.bottom() && pos.x < r.center().x)
+        }
+    })
+}
+
 /// Puts the text cursor at the end of a message box after it was filled in.
 fn set_cursor_end(ctx: &egui::Context, id: egui::Id, text: &str) {
     if let Some(mut st) = egui::text_edit::TextEditState::load(ctx, id) {
@@ -3256,7 +3318,38 @@ fn move_item<T>(v: &mut Vec<T>, from: usize, to: usize, shown: usize) -> usize {
 
 #[cfg(test)]
 mod tab_move_tests {
-    use super::{local_command, move_item, LocalCmd};
+    use super::{drop_before, local_command, move_item, LocalCmd};
+
+    #[test]
+    fn dropping_a_tab_into_wrapped_rows() {
+        use egui::{pos2, Rect};
+        // two rows: tabs 0, 1, 2 on the first (y 0..20), tabs 3, 4 on the second (y 21..41)
+        let tab = |i: usize, x: f32, y: f32| {
+            (i, Rect::from_min_max(pos2(x, y), pos2(x + 80.0, y + 20.0)))
+        };
+        let places = vec![
+            tab(0, 0.0, 0.0),
+            tab(1, 81.0, 0.0),
+            tab(2, 162.0, 0.0),
+            tab(3, 0.0, 21.0),
+            tab(4, 81.0, 21.0),
+        ];
+        // first row, left half of tab 1
+        assert_eq!(drop_before(&places, pos2(100.0, 10.0), false), Some(1));
+        // first row, right of the last tab there: before the first tab of the next row
+        assert_eq!(drop_before(&places, pos2(240.0, 10.0), false), Some(3));
+        // second row, left half of tab 4 (it used to only look at x and pick tab 1)
+        assert_eq!(drop_before(&places, pos2(100.0, 30.0), false), Some(4));
+        // second row, after its last tab: the end
+        assert_eq!(drop_before(&places, pos2(240.0, 30.0), false), None);
+        // a column: only the height counts
+        let column = vec![
+            (0, Rect::from_min_max(pos2(0.0, 0.0), pos2(170.0, 20.0))),
+            (1, Rect::from_min_max(pos2(0.0, 21.0), pos2(170.0, 41.0))),
+        ];
+        assert_eq!(drop_before(&column, pos2(150.0, 25.0), true), Some(1));
+        assert_eq!(drop_before(&column, pos2(5.0, 50.0), true), None);
+    }
 
     #[test]
     fn local_commands_are_never_sent() {
