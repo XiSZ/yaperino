@@ -632,6 +632,47 @@ pub fn segments(
     out
 }
 
+/// Twitch emotes in your own message, found by whole word in the emotes your account
+/// can use. Twitch doesn't send your own messages back with emote positions, so
+/// without this they'd show as plain words (Chatterino finds them the same way).
+pub fn own_twitch_positions(text: &str, usable: &[(String, Emote)]) -> Vec<(usize, usize, String)> {
+    let mut out = Vec::new();
+    let mut start = 0usize; // in characters, as Twitch counts them
+    for word in text.split(' ') {
+        let len = word.chars().count();
+        if len > 0 {
+            if let Some(id) = usable
+                .iter()
+                .find(|(_, e)| e.name == word)
+                .and_then(|(_, e)| e.id())
+            {
+                out.push((start, start + len - 1, id.to_string()));
+            }
+        }
+        start += len + 1;
+    }
+    out
+}
+
+/// Kick only shows an emote when the message carries it as `[emote:<id>:<name>]` (what
+/// kick.com's own emote picker sends); a typed emote name stays text. Turns the channel's
+/// Kick emote names into that form before sending.
+pub fn kick_emote_codes(text: &str, sets: Option<&Vec<(String, Vec<Emote>)>>) -> String {
+    let Some(sets) = sets else {
+        return text.to_string();
+    };
+    text.split(' ')
+        .map(|w| {
+            sets.iter()
+                .flat_map(|(_, list)| list.iter())
+                .find(|e| !w.is_empty() && e.name == w)
+                .and_then(|e| e.id().map(|id| format!("[emote:{id}:{}]", e.name)))
+                .unwrap_or_else(|| w.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn push_seg_text(out: &mut Vec<Seg>, s: String) {
     if let Some(Seg::Text(t)) = out.last_mut() {
         t.push_str(&s);
@@ -643,6 +684,49 @@ fn push_seg_text(out: &mut Vec<Seg>, s: String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn own_message_twitch_emotes_by_word() {
+        let usable = vec![(
+            "global".to_string(),
+            Emote {
+                name: "Kappa".into(),
+                url: twitch_emote_url("25"),
+                provider: Provider::Twitch,
+            },
+        )];
+        // "héllo" has a non-ASCII letter: positions count characters, not bytes
+        let pos = own_twitch_positions("héllo Kappa  Kappa x", &usable);
+        assert_eq!(
+            pos,
+            vec![(6, 10, "25".to_string()), (13, 17, "25".to_string())]
+        );
+        let store = Store::default();
+        let segs = segments("héllo Kappa  Kappa x", &pos, &store, "c");
+        assert_eq!(
+            segs.iter()
+                .filter(|s| matches!(s, Seg::Emote(e) if e.name == "Kappa"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn kick_emote_names_become_codes() {
+        let sets = vec![(
+            "channel".to_string(),
+            vec![Emote {
+                name: "KEKW".into(),
+                url: format!("{}123/fullsize", crate::platforms::KICK_EMOTE),
+                provider: Provider::Kick,
+            }],
+        )];
+        assert_eq!(
+            kick_emote_codes("lol KEKW  kekw", Some(&sets)),
+            "lol [emote:123:KEKW]  kekw"
+        );
+        assert_eq!(kick_emote_codes("KEKW", None), "KEKW");
+    }
 
     #[test]
     fn twitch_positions_and_words() {

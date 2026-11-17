@@ -53,8 +53,6 @@ const MAX_CHAT_LINES: usize = 600;
 #[serde(default)]
 pub struct Settings {
     pub sort: SortMode,
-    /// The channel list file; empty = the Online Channels plugin's list.
-    pub channels_file: String,
     /// Channels added in this window.
     pub extra: Vec<String>,
     /// Which Twitch account to use for follows and sending messages.
@@ -136,9 +134,6 @@ pub struct Settings {
     pub matched: HashMap<String, Links>,
     /// The follow list from the last check (offline channels too), for name matching.
     pub follows: Vec<String>,
-    /// Also read a channel list file (e.g. the Online Channels plugin's); off: the list
-    /// comes from the Twitch sign-in's follows.
-    pub use_channel_file: bool,
     /// Settings > Customization (chatterino7 / Moltorino appearance).
     pub appearance: crate::style::Appearance,
     /// Chatterino's message settings: a platform badge before each message, bold and
@@ -230,7 +225,6 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             sort: SortMode::Viewers,
-            channels_file: String::new(),
             extra: Vec::new(),
             account: AccountMode::Device,
             device: SavedDevice::default(),
@@ -283,7 +277,6 @@ impl Default for Settings {
             match_names: true,
             matched: HashMap::new(),
             follows: Vec::new(),
-            use_channel_file: false,
             appearance: Default::default(),
             platform_badges: true,
             bold_names: true,
@@ -540,13 +533,14 @@ pub struct LiveApp {
     checking: bool,
     last_check: Option<Instant>,
     first_done: bool,
+    /// The last result was the early, Twitch-only one of the first check.
+    startup_partial: bool,
     error: Option<String>,
     note: Option<(String, Instant)>,
     chats: Vec<ChatTab>,
     active_chat: usize,
     chat_open: bool,
     add_text: Option<String>,
-    file_text: Option<String>,
     last_title: String,
     shot: Option<Shot>,
     demo: bool,
@@ -646,7 +640,7 @@ pub struct LiveApp {
 /// Lookups by name at once (each asks Twitch, Kick, YouTube and TikTok).
 const MATCH_AT_ONCE: usize = 2;
 
-/// Every Twitch channel the live list knows: the list file and added channels, the follow
+/// Every Twitch channel the live list knows: joined and added channels, the follow
 /// list, and every channel joined in a tab on any platform (its Twitch channel), without
 /// repeats and in that order.
 pub fn known_channels(
@@ -726,13 +720,13 @@ impl LiveApp {
             checking: false,
             last_check: None,
             first_done: false,
+            startup_partial: false,
             error: None,
             note: None,
             chats: Vec::new(),
             active_chat: 0,
             chat_open: false,
             add_text: None,
-            file_text: None,
             last_title: String::new(),
             shot,
             demo,
@@ -1207,40 +1201,17 @@ impl LiveApp {
         self.chat.as_ref().unwrap()
     }
 
-    fn channels_file(&self) -> Option<PathBuf> {
-        if self.settings.channels_file.trim().is_empty() {
-            fetch::default_channels_file()
-        } else {
-            Some(PathBuf::from(self.settings.channels_file.trim()))
-        }
-    }
-
     fn refresh(&mut self) {
         if self.demo || self.checking {
             return;
         }
         // The live list comes from the Twitch sign-in: every channel the account follows
         // (Helix, like Chatterino's / Moltorino's "followed channels"), plus channels joined
-        // in a tab and added by hand. A channel list file is only read when switched on.
-        let mut problems = Vec::new();
-        let base = match self
-            .channels_file()
-            .filter(|_| self.settings.use_channel_file)
-        {
-            Some(p) if p.is_file() => fetch::read_channel_file(&p).unwrap_or_else(|e| {
-                problems.push(e);
-                Vec::new()
-            }),
-            Some(p) => {
-                problems.push(format!("No channel list at {}", p.display()));
-                Vec::new()
-            }
-            None => Vec::new(),
-        };
+        // in a tab and added by hand. Never from a file.
         // open chats are checked too, so their split headers show live, title and viewers
         let mut extra = self.settings.extra.clone();
         extra.extend(self.chats.iter().filter_map(|t| t.twitch.clone()));
-        let list = fetch::merge_lists(base, &extra);
+        let list = fetch::merge_lists(Vec::new(), &extra);
         // also every channel ever joined in a tab (on any platform), followed or not
         let list = known_channels(&list, &[], &self.settings.links);
         self.queue_name_matches(&list);
@@ -1266,11 +1237,9 @@ impl LiveApp {
             && self.settings.links.values().all(|l| l.is_empty())
             && self.settings.matched.values().all(|l| l.is_empty())
         {
-            self.error = Some(if problems.is_empty() {
-                "Sign in with Twitch (Settings > Accounts) to see who you follow is live.".into()
-            } else {
-                problems.join("\n")
-            });
+            self.error = Some(
+                "Sign in with Twitch (Settings > Accounts) to see who you follow is live.".into(),
+            );
             self.first_done = true;
             return;
         }
@@ -1311,7 +1280,8 @@ impl LiveApp {
         }
         {
             for res in results {
-                self.checking = false;
+                // a partial (Twitch only) result: the full one is still on its way
+                self.checking = res.partial;
                 self.first_done = true;
                 let keep = res.error_free_or_partial();
                 reload |= res.auth_failed;
@@ -1335,8 +1305,11 @@ impl LiveApp {
                     }
                 }
                 if keep {
-                    let complete = res.error.is_none();
+                    // a partial result never moves streams to the offline list
+                    let complete = res.error.is_none() && !res.partial;
                     self.take_new_streams(res.streams, complete);
+                    // the full result after a partial one still counts as the first check
+                    self.startup_partial = res.partial;
                     self.start_readers();
                 }
             }
@@ -1589,7 +1562,7 @@ impl LiveApp {
     /// so a missing stream really went offline.
     fn take_new_streams(&mut self, mut fresh: Vec<Stream>, complete: bool) {
         let now = model::now_unix();
-        let first = self.seen.is_empty() && self.streams.is_empty();
+        let first = (self.seen.is_empty() && self.streams.is_empty()) || self.startup_partial;
         for s in &mut fresh {
             if s.group.is_empty() {
                 s.group = s.login.clone();
@@ -2230,6 +2203,8 @@ impl LiveApp {
                     );
                     return;
                 };
+                // Kick emotes picked by name are sent the way kick.com sends them
+                let text = emotes::kick_emote_codes(&text, self.emotes.kick_sets.get(&group));
                 let saved = self.settings.kick.clone();
                 let (tx, ctx) = (self.side_tx.clone(), self.ctx.clone());
                 if saved.token.is_empty() {
@@ -2836,7 +2811,6 @@ impl LiveApp {
                 }
             }
             RowAction::Add => self.add_text = Some(String::new()),
-            RowAction::File => self.file_text = Some(self.settings.channels_file.clone()),
             // bring the main (chat) window forward
             RowAction::Chats => self
                 .ctx
@@ -3056,34 +3030,6 @@ impl LiveApp {
                 self.add_text = Some(text);
             }
         }
-        if let Some(mut text) = self.file_text.take() {
-            let mut keep = true;
-            egui::Window::new("Channel list file")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-                .show(ctx, |ui| {
-                    ui.label("Full path of a JSON or text file with channel names.");
-                    ui.label("Leave empty to use the Online Channels plugin's list:");
-                    if let Some(p) = fetch::default_channels_file() {
-                        ui.weak(p.display().to_string());
-                    }
-                    ui.add(egui::TextEdit::singleline(&mut text).desired_width(460.0));
-                    ui.horizontal(|ui| {
-                        if ui.button("Use this").clicked() {
-                            self.settings.channels_file = text.trim().to_string();
-                            keep = false;
-                            self.refresh();
-                        }
-                        if ui.button("Cancel").clicked() {
-                            keep = false;
-                        }
-                    });
-                });
-            if keep {
-                self.file_text = Some(text);
-            }
-        }
     }
 
     // ----------------------------------------------------------------- chats
@@ -3152,10 +3098,15 @@ fn fill_segments(line: &mut ChatLine, store: &Store, channel: &str) {
         emotes: tags,
         segs,
         platform,
+        own,
         ..
     } = line
     {
         if *platform == Platform::Twitch {
+            // your own messages come without Twitch emote positions: find them by word
+            if *own && tags.is_empty() {
+                *tags = emotes::own_twitch_positions(text, &store.user_twitch);
+            }
             *segs = emotes::segments(text, tags, store, channel);
         } else if segs.is_empty() {
             *segs = vec![emotes::Seg::Text(text.clone())];
@@ -3257,7 +3208,6 @@ enum RowAction {
     Settings,
     Refresh,
     Add,
-    File,
     Chats,
     Account,
 }
@@ -3562,7 +3512,6 @@ fn list_menu(
     });
     ui.menu_button("More Settings..", |ui| {
         item(ui, "Add channel..", action, || RowAction::Add);
-        item(ui, "Channel list file..", action, || RowAction::File);
         item(ui, "Account (follows and sending)..", action, || {
             RowAction::Account
         });

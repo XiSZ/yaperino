@@ -351,17 +351,26 @@ pub fn start(group: String, user: String, tx: Sender<Event>, ctx: egui::Context)
             let _ = tx.send(e);
             ctx.request_repaint();
         };
+        // the last message shown: checking again every minute stays quiet until
+        // something changes (not live -> live, or a different problem)
+        let mut last: Option<String> = None;
         while !stop2.load(Ordering::Relaxed) {
             let r = match room_id(&user) {
-                Ok(Some(room)) => session(&group, &room, &stop2, &emit),
+                Ok(Some(room)) => {
+                    last = None;
+                    session(&group, &room, &stop2, &emit)
+                }
                 Ok(None) => Err(format!("@{user} is not live on TikTok")),
                 Err(e) => Err(e),
             };
             if let Err(e) = r {
-                emit(Event::Line(
-                    group.clone(),
-                    ChatLine::System(format!("TikTok chat: {e}")),
-                ));
+                if last.as_deref() != Some(e.as_str()) {
+                    emit(Event::Line(
+                        group.clone(),
+                        ChatLine::System(format!("TikTok chat: {e}")),
+                    ));
+                    last = Some(e);
+                }
             }
             // check again in a minute
             for _ in 0..60 {

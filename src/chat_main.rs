@@ -1590,11 +1590,17 @@ impl LiveApp {
                 if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
                     tab.ac_sel = (tab.ac_sel + 1) % n;
                 }
-                if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
+                // Shift+Tab: the suggestion before (Chatterino); with Shift held these keys
+                // must be caught here too, or egui moves the focus to the next button and
+                // the following Enter would press it (it opened the emote window)
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+                    || i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab)
+                {
                     tab.ac_sel = (tab.ac_sel + n - 1) % n;
                 }
                 if i.consume_key(egui::Modifiers::NONE, egui::Key::Tab)
                     || i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                    || i.consume_key(egui::Modifiers::SHIFT, egui::Key::Enter)
                 {
                     accept = Some(popup_items[tab.ac_sel].insert.clone());
                 }
@@ -1899,6 +1905,9 @@ impl LiveApp {
                     .hint_text("Send message...")
                     .frame(egui::Frame::NONE)
                     .char_limit(chat::MAX_MESSAGE)
+                    // Tab / Shift+Tab are for completion: they never move the focus to the
+                    // buttons next to the box (a single line never gets a tab character)
+                    .lock_focus(true)
                     .desired_width(w),
             );
             if r.gained_focus() || r.clicked() {

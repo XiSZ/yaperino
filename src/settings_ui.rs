@@ -103,8 +103,8 @@ impl Page {
             Page::Hotkeys => "keyboard shortcut hotkey keybinding ctrl alt",
             Page::Moderation => "moderation logs logging log files timestamp",
             Page::Notifications => "notify notification live flash taskbar sound startup selected channels",
-            Page::LiveList => "online channels plugin channel list file login follows followed where from live streams list sort viewers uptime favorites favourites refresh interval sections platform chatty",
-            Page::Platforms => "channel list file added channels kick youtube tiktok links platforms",
+            Page::LiveList => "login follows followed where from live streams list sort viewers uptime favorites favourites refresh interval sections platform chatty",
+            Page::Platforms => "added channels kick youtube tiktok links platforms",
             Page::ExternalTools => "streamlink player quality external custom player uri scheme",
             Page::Plugins => "plugins plugin lua scripts commands",
             Page::About => "about version install licenses open source",
@@ -1033,7 +1033,7 @@ impl LiveApp {
     }
 
     // -------------------------------------------------------------- General
-    /// Where the live list comes from: the Twitch sign-in's follows; a channel list file only when switched on.
+    /// Where the live list comes from: the Twitch sign-in's follows, never a file.
     fn list_source(&mut self, ui: &mut egui::Ui) {
         heading(ui, "Where the live list comes from", TEXT);
         match self.account.as_ref().filter(|a| a.can_follow()) {
@@ -1045,19 +1045,6 @@ impl LiveApp {
             )),
             None => ui.label("Sign in with Twitch (Accounts) and the list shows every channel you follow, live. Without it only the channels below and the ones you join are checked."),
         };
-        ui.checkbox(
-            &mut self.settings.use_channel_file,
-            "Also read a channel list file (for example the Online Channels plugin's)",
-        );
-        if self.settings.use_channel_file {
-            ui.label("A JSON or text file with channel names; empty uses the Online Channels plugin's list:");
-            if let Some(p) = fetch::default_channels_file() {
-                ui.weak(p.display().to_string());
-            }
-            ui.add(
-                egui::TextEdit::singleline(&mut self.settings.channels_file).desired_width(460.0),
-            );
-        }
     }
 
     fn live_list_page(&mut self, ui: &mut egui::Ui) {

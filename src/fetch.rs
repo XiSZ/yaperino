@@ -1,56 +1,21 @@
-//! Where the channel list comes from and how "who is live" is asked.
+//! Who is live on Twitch, asked in the background.
 //!
-//! The list is read from the person's own "Online Channels" plugin data
-//! (the same file their /online command uses), plus channels added in this
-//! window. Live state comes from api.ivr.fi in batches of 50 logins, the way
-//! that plugin already does it successfully (see MECHANICS.md).
+//! Signed in, everything comes from Twitch's own API (Helix): the followed channels
+//! that are live (`streams/followed`), and the other channels in the list (joined in a
+//! tab or added by hand) through `streams?user_login=`, 100 at a time. Without a
+//! sign-in, those other channels are asked from api.ivr.fi instead. Kick, YouTube and
+//! TikTok are checked by `platforms::LinkChecker` alongside.
 
 use crate::model::{parse_iso8601, Stream};
 use serde_json::Value;
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 pub const BATCH: usize = 50;
 pub const TIMEOUT_MS: u64 = 10_000;
 pub const IVR_URL: &str = "https://api.ivr.fi/v2/twitch/user?login=";
-
-const NAME_KEYS: [&str; 6] = [
-    "login",
-    "broadcaster_login",
-    "user_login",
-    "to_login",
-    "name",
-    "channel",
-];
-const LIST_KEYS: [&str; 4] = ["data", "channels", "follows", "following"];
-
-/// Default place of the person's plugin channel list.
-pub fn default_channels_file() -> Option<PathBuf> {
-    // Chatterino's own folder: %APPDATA%\Chatterino2, ~/.local/share/chatterino,
-    // ~/Library/Application Support/chatterino
-    #[cfg(windows)]
-    let chatterino = PathBuf::from(std::env::var_os("APPDATA")?).join("Chatterino2");
-    #[cfg(target_os = "macos")]
-    let chatterino = std::env::home_dir()?
-        .join("Library")
-        .join("Application Support")
-        .join("chatterino");
-    #[cfg(not(any(windows, target_os = "macos")))]
-    let chatterino = std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::home_dir().map(|h| h.join(".local").join("share")))?
-        .join("chatterino");
-    Some(
-        chatterino
-            .join("Plugins")
-            .join("online-channels")
-            .join("data")
-            .join("channels.json"),
-    )
-}
+pub const HELIX_STREAMS: &str = "https://api.twitch.tv/helix/streams";
 
 pub fn valid_login(name: &str) -> Option<String> {
     let n = name.trim().trim_start_matches('#').to_lowercase();
@@ -59,54 +24,6 @@ pub fn valid_login(name: &str) -> Option<String> {
     } else {
         None
     }
-}
-
-fn collect(value: &Value, out: &mut Vec<String>, seen: &mut HashSet<String>) {
-    match value {
-        Value::String(s) => {
-            if let Some(n) = valid_login(s) {
-                if seen.insert(n.clone()) {
-                    out.push(n);
-                }
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                collect(item, out, seen);
-            }
-        }
-        Value::Object(map) => {
-            for key in NAME_KEYS {
-                if let Some(v @ Value::String(_)) = map.get(key) {
-                    collect(v, out, seen);
-                    return;
-                }
-            }
-            for key in LIST_KEYS {
-                if let Some(v) = map.get(key) {
-                    collect(v, out, seen);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Reads logins from a JSON file of any of the shapes the plugin accepts,
-/// or a plain text file with one name per line.
-pub fn read_channel_file(path: &Path) -> Result<Vec<String>, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    match serde_json::from_str::<Value>(&text) {
-        Ok(v) => collect(&v, &mut out, &mut seen),
-        Err(_) => {
-            for line in text.lines() {
-                collect(&Value::String(line.to_string()), &mut out, &mut seen);
-            }
-        }
-    }
-    Ok(out)
 }
 
 pub fn merge_lists(primary: Vec<String>, extra: &[String]) -> Vec<String> {
@@ -181,6 +98,9 @@ pub struct FetchResult {
     pub other: Option<crate::platforms::OtherLive>,
     /// Every channel the account follows (live or not), when signed in.
     pub follows: Option<Vec<String>>,
+    /// Only Twitch, sent early on the first check so the list shows at once; the full
+    /// result (with Kick, YouTube and TikTok) follows.
+    pub partial: bool,
 }
 
 /// The signed-in account, for Helix calls.
@@ -273,7 +193,7 @@ fn fetch_followed(agent: &ureq::Agent, auth: &Auth) -> Result<Vec<Stream>, (bool
     Ok(out)
 }
 
-/// Live state for the list file and added channels, plus (signed in) every
+/// Live state for joined and added channels, plus (signed in) every
 /// followed live stream. Duplicates are merged; the Twitch (Helix) data wins.
 pub fn fetch_live(list: &[String], auth: Option<&Auth>) -> FetchResult {
     let agent = agent();
@@ -304,6 +224,58 @@ pub fn fetch_live(list: &[String], auth: Option<&Auth>) -> FetchResult {
         .enumerate()
         .map(|(i, n)| (n.as_str(), i))
         .collect();
+    if let Some(a) = auth {
+        // channels not followed (joined in a tab, added by hand): Twitch's own API too
+        for batch in rest.chunks(HELIX_PAGE) {
+            let logins: Vec<String> = batch.iter().map(|l| format!("user_login={l}")).collect();
+            let url = format!("{HELIX_STREAMS}?first={HELIX_PAGE}&{}", logins.join("&"));
+            let answer = agent
+                .get(&url)
+                .header("Authorization", &format!("Bearer {}", a.token))
+                .header("Client-Id", &a.client_id)
+                .call()
+                .map_err(|e| e.to_string())
+                .and_then(|mut r| {
+                    if r.status() == 200 {
+                        r.body_mut().read_json::<Value>().map_err(|e| e.to_string())
+                    } else {
+                        Err(format!("Twitch answered {}", r.status()))
+                    }
+                });
+            match answer {
+                Ok(v) => {
+                    for item in v
+                        .get("data")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                    {
+                        let idx = item
+                            .get("user_login")
+                            .and_then(Value::as_str)
+                            .and_then(|l| position.get(l).copied())
+                            .unwrap_or(usize::MAX);
+                        if let Some(s) = stream_from_helix(item, idx) {
+                            if !have.contains(&s.login) {
+                                streams.push(s);
+                            }
+                        }
+                    }
+                }
+                Err(e) => error = Some(e),
+            }
+        }
+        return FetchResult {
+            streams,
+            error,
+            followed,
+            auth_failed,
+            other: None,
+            follows: None,
+            partial: false,
+        };
+    }
+    // not signed in: api.ivr.fi, which needs no account
     for batch in rest.chunks(BATCH) {
         let url = format!("{IVR_URL}{}", batch.join(","));
         let answer = agent
@@ -337,6 +309,7 @@ pub fn fetch_live(list: &[String], auth: Option<&Auth>) -> FetchResult {
         auth_failed,
         other: None,
         follows: None,
+        partial: false,
     }
 }
 
@@ -405,11 +378,27 @@ pub fn spawn_worker(ctx: egui::Context) -> (Sender<Job>, Receiver<FetchResult>) 
     std::thread::spawn(move || {
         let mut checker = crate::platforms::LinkChecker::default();
         let mut follows: Option<(std::time::Instant, String, Vec<String>)> = None;
+        let mut first = true;
         while let Ok(Job::Check(list, auth, links, open)) = job_rx.recv() {
             // other platforms in parallel with Twitch
             let other = std::thread::scope(|s| {
                 let h = (!links.is_empty()).then(|| s.spawn(|| checker.check(&links, &open)));
                 let mut r = fetch_live(&list, auth.as_ref());
+                // first check after starting: show Twitch's answer at once instead of
+                // waiting for every Kick / YouTube / TikTok channel (that can take a while)
+                if first && h.as_ref().is_some_and(|h| !h.is_finished()) {
+                    let _ = res_tx.send(FetchResult {
+                        streams: r.streams.clone(),
+                        error: r.error.clone(),
+                        followed: r.followed,
+                        auth_failed: r.auth_failed,
+                        other: None,
+                        follows: None,
+                        partial: true,
+                    });
+                    ctx.request_repaint();
+                }
+                first = false;
                 // the whole follow list, now and then (for name matching on other platforms)
                 if let Some(a) = &auth {
                     let stale = follows.as_ref().is_none_or(|(at, user, _)| {
