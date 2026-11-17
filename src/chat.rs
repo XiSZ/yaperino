@@ -102,6 +102,9 @@ pub enum Event {
     /// broadcaster badge in its own channel); the usercard's mod actions and the split's
     /// moderation mode (sword) need it.
     ModIn(String, bool),
+    /// The id Twitch gave a message this account just sent (its USERSTATE after a PRIVMSG):
+    /// (channel, message id). Pinning, deleting and replying need it.
+    OwnId(String, String),
 }
 
 pub enum Cmd {
@@ -211,9 +214,75 @@ fn set_timeout(s: &MaybeTlsStream<TcpStream>) {
     }
 }
 
+/// Channels waiting to be joined, sent at most JOIN_BURST per JOIN_WINDOW (Twitch's limit is
+/// about 20 per 10 seconds; a little under it leaves room).
+#[derive(Default)]
+struct JoinQueue {
+    waiting: std::collections::VecDeque<String>,
+    sent: std::collections::VecDeque<Instant>,
+}
+
+const JOIN_BURST: usize = 15;
+const JOIN_WINDOW: Duration = Duration::from_secs(11);
+
+impl JoinQueue {
+    fn add(&mut self, ch: String) {
+        if !self.waiting.contains(&ch) {
+            self.waiting.push_back(ch);
+        }
+    }
+
+    /// Takes a channel out before it was joined; true when it was still waiting.
+    fn cancel(&mut self, ch: &str) -> bool {
+        let before = self.waiting.len();
+        self.waiting.retain(|c| c != ch);
+        self.waiting.len() != before
+    }
+
+    /// The next channel to join now, if the limit allows one.
+    fn next(&mut self, now: Instant) -> Option<String> {
+        while self
+            .sent
+            .front()
+            .is_some_and(|t| now.duration_since(*t) >= JOIN_WINDOW)
+        {
+            self.sent.pop_front();
+        }
+        if self.sent.len() >= JOIN_BURST {
+            return None;
+        }
+        let ch = self.waiting.pop_front()?;
+        self.sent.push_back(now);
+        Some(ch)
+    }
+}
+
 fn text(ws: &mut Ws, line: String) -> Result<(), String> {
+    if !line.starts_with("PASS ") {
+        debug_irc(">", &line);
+    }
     ws.send(Message::Text(line.into()))
         .map_err(|e| e.to_string())
+}
+
+/// Troubleshooting: YAPERINO_DEBUG_IRC=<file> writes the chat traffic there (never the
+/// PASS line, which holds the sign-in).
+fn debug_irc(dir: &str, line: &str) {
+    let Ok(path) = std::env::var("YAPERINO_DEBUG_IRC") else {
+        return;
+    };
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(f, "{} {dir} {line}", clock_secs());
+    }
+}
+
+fn clock_secs() -> String {
+    chrono::Local::now().format("%H:%M:%S").to_string()
 }
 
 fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Result<Exit, String> {
@@ -239,8 +308,13 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
         }
     };
     emit(Event::Connected(me.clone()));
-    for ch in st.channels.clone() {
-        text(&mut ws, format!("JOIN #{ch}"))?;
+    // Twitch takes about 20 JOINs per 10 seconds and silently drops the rest: with many
+    // tabs open, some chats stayed empty. Joins go out in paced batches instead.
+    let mut joins = JoinQueue::default();
+    let mut first: Vec<String> = st.channels.iter().cloned().collect();
+    first.sort();
+    for ch in first {
+        joins.add(ch);
     }
     let mut last_ping = Instant::now();
     loop {
@@ -249,11 +323,12 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
             match cmds.try_recv() {
                 Ok(Cmd::Join(ch)) => {
                     if st.channels.insert(ch.clone()) {
-                        text(&mut ws, format!("JOIN #{ch}"))?;
+                        joins.add(ch);
                     }
                 }
                 Ok(Cmd::Part(ch)) => {
-                    if st.channels.remove(&ch) {
+                    // not joined yet: just never join it
+                    if st.channels.remove(&ch) && !joins.cancel(&ch) {
                         text(&mut ws, format!("PART #{ch}"))?;
                     }
                 }
@@ -326,6 +401,9 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
             let _ = ws.close(None);
             return Ok(Exit::Reconnect);
         }
+        while let Some(ch) = joins.next(Instant::now()) {
+            text(&mut ws, format!("JOIN #{ch}"))?;
+        }
         if last_ping.elapsed() > Duration::from_secs(240) {
             text(&mut ws, "PING :keepalive".into())?;
             last_ping = Instant::now();
@@ -333,6 +411,7 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
         match ws.read() {
             Ok(Message::Text(t)) => {
                 for raw in t.lines() {
+                    debug_irc("<", raw);
                     if raw.starts_with("PING") {
                         text(&mut ws, raw.replacen("PING", "PONG", 1))?;
                         continue;
@@ -377,7 +456,11 @@ fn handle(raw: &str, st: &mut State, emit: &impl Fn(Event)) {
             // USERSTATE is per channel: are we a moderator (or the broadcaster) there?
             if p.cmd == "USERSTATE" {
                 if let Some(ch) = channel_of(p.params) {
-                    emit(Event::ModIn(ch, moderates(p.tags)));
+                    emit(Event::ModIn(ch.clone(), moderates(p.tags)));
+                    // after a message we sent, USERSTATE carries its id
+                    if let Some(id) = tag(p.tags, "id").filter(|s| !s.is_empty()) {
+                        emit(Event::OwnId(ch, id.to_string()));
+                    }
                 }
             }
         }
@@ -724,6 +807,58 @@ mod tests {
     }
 
     #[test]
+    fn own_messages_get_their_id_from_userstate() {
+        let mut st = State {
+            channels: HashSet::new(),
+            auth: None,
+            color: None,
+            badges: Vec::new(),
+            display: None,
+        };
+        let got = std::cell::RefCell::new(Vec::new());
+        let emit = |e: Event| got.borrow_mut().push(e);
+        handle(
+            "@badges=broadcaster/1;color=;display-name=Me;id=abc-123;mod=0 :tmi.twitch.tv USERSTATE #me",
+            &mut st,
+            &emit,
+        );
+        // joining: no id
+        handle(
+            "@badges=broadcaster/1;color=;display-name=Me;mod=0 :tmi.twitch.tv USERSTATE #me",
+            &mut st,
+            &emit,
+        );
+        let ids: Vec<(String, String)> = got
+            .borrow()
+            .iter()
+            .filter_map(|e| match e {
+                Event::OwnId(c, i) => Some((c.clone(), i.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids, [("me".to_string(), "abc-123".to_string())]);
+    }
+
+    #[test]
+    fn joins_are_paced_under_twitchs_limit() {
+        let mut q = JoinQueue::default();
+        for i in 0..27 {
+            q.add(format!("c{i}"));
+        }
+        q.add("c0".into()); // already waiting
+        let t0 = Instant::now();
+        let first: Vec<String> = std::iter::from_fn(|| q.next(t0)).collect();
+        assert_eq!(first.len(), JOIN_BURST);
+        // a chat closed before its turn is never joined
+        assert!(q.cancel("c20"));
+        assert!(!q.cancel("c0"));
+        assert_eq!(q.next(t0 + Duration::from_secs(5)), None);
+        let rest: Vec<String> = std::iter::from_fn(|| q.next(t0 + JOIN_WINDOW)).collect();
+        assert_eq!(rest.len(), 27 - JOIN_BURST - 1);
+        assert!(!rest.contains(&"c20".to_string()));
+    }
+
+    #[test]
     fn reply_prefix() {
         assert_eq!(reply_prefix_len("@alice hi", "alice", "Alice"), Some(7));
         assert_eq!(reply_prefix_len("@Alice hi", "alice", ""), Some(7));
@@ -803,6 +938,20 @@ mod tests {
             }
         }
         false
+    }
+
+    /// Network test: other people's messages arrive (read only, in a busy chat).
+    /// `cargo test -- --ignored receives_messages` (YAP_TEST_CHANNEL to pick the channel)
+    #[test]
+    #[ignore]
+    fn receives_messages() {
+        let ch = std::env::var("YAP_TEST_CHANNEL").unwrap_or_else(|_| "xqc".into());
+        let chat = Chat::start(egui::Context::default());
+        chat.send(Cmd::Join(ch));
+        assert!(wait_for(&chat, |e| matches!(
+            e,
+            Event::Line(_, ChatLine::Msg { own: false, .. })
+        )));
     }
 
     /// Network test: `cargo test -- --ignored joins_anonymously`

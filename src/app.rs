@@ -1478,6 +1478,21 @@ impl LiveApp {
                     }
                 }
                 Event::AuthFailed => reload = true,
+                // the id of a message we sent: the newest own line without one gets it
+                Event::OwnId(ch, id) => {
+                    for tab in self
+                        .chats
+                        .iter_mut()
+                        .filter(|t| t.login == ch || t.twitch.as_deref() == Some(ch.as_str()))
+                    {
+                        let own = tab.lines.iter_mut().rev().find(|l| {
+                            matches!(l, ChatLine::Msg { own: true, msg_id, .. } if msg_id.is_empty())
+                        });
+                        if let Some(ChatLine::Msg { msg_id, .. }) = own {
+                            *msg_id = id.clone();
+                        }
+                    }
+                }
             }
         }
         if reload {
