@@ -55,11 +55,14 @@ Modelled on Chatty's "Live Streams" list.
 - "+" (Ctrl+Shift+T) opens an empty tab; add splits to it with its button or Ctrl+T.
 - Right-click a tab to lock it, or lock the whole tab layout, so nothing gets moved or closed
   by accident. Tabs can have colours, be "Always visible" or compact.
+- **Tab groups** (Moltorino): right-click a tab > Move to group. Each group gets a chip in the
+  tab bar; click it to collapse or expand the group.
+- Tabs that don't fit wrap onto more rows (on the left or right, the column scrolls).
 - Split header: "name (live) - uptime - viewers - game - title". Hover it for a stream
   preview.
 - Hotkeys: Ctrl+J joins a channel, Ctrl+L leaves it (also /join and /part), Ctrl+T adds a
   split, Ctrl+W closes it, Ctrl+R changes channel, Ctrl+G reopens a closed split, Ctrl+F
-  searches and Ctrl+E opens the emotes. Chatterino's other default hotkeys work too, and all
+  searches, Ctrl+Shift+F searches all chats and Ctrl+E opens the emotes. Chatterino's other default hotkeys work too, and all
   of them can be changed in Settings > Hotkeys.
 
 ### Chat
@@ -72,6 +75,13 @@ Modelled on Chatty's "Live Streams" list.
   (Ctrl+F).
 - **From Moltorino**: /hide and /unhide, /chatters, /export (chat to text and JSON),
   clickable #channel names and a counter for repeated messages.
+- **Usercards**: click a name for their picture, roles, account date, when they followed
+  the channel (for moderators), their messages here and in your chat logs, and buttons to
+  mention, hide or moderate them.
+- **Replies**: right-click a Twitch message > Reply. Replies show what they answer; click
+  that line to see the whole thread.
+- **Search across all chats** (Ctrl+Shift+F): one search over every open chat; click a match
+  to go there.
 - **Copy and paste** works everywhere. Right-click a message to copy it.
 
 ### Mod tools (Twitch)
@@ -80,6 +90,8 @@ Through Twitch's API: /timeout, /ban, /warn, /clear, chat modes (/slow, /followe
 /emoteonly, /subscribers, /uniquechat, /shield), /announce, /shoutout and blocked terms.
 For your own channel also /mod, /vip, /raid, /commercial, /settitle, /setgame, /marker,
 polls and predictions. /modhelp lists them, and the split menu has a Moderation submenu.
+In channels you moderate, the **sword** in the split header turns on mod buttons in front of
+every message, and the usercard has timeout, ban and unban buttons.
 Sign in to Twitch again after updating to grant the permissions.
 
 ### Sign-ins
