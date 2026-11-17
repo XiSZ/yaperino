@@ -1,7 +1,8 @@
 //! Chatterino's usercard (Moltorino's user popup): click a name in chat. Shows the Twitch
 //! profile (picture, account age, followers), when they followed this channel (Twitch only
-//! tells moderators), their messages here (this session and the chat logs), and mod actions
-//! in channels you moderate. A child of `app`, so it works on the window's own state.
+//! tells moderators), their earlier names (`namehistory`), their messages here (this session
+//! and the chat logs), and mod actions in channels you moderate. A child of `app`, so it
+//! works on the window's own state.
 
 use super::*;
 use std::path::Path;
@@ -30,6 +31,9 @@ pub struct UserCard {
     rx: Option<Receiver<Result<Profile, String>>>,
     /// Their lines from the chat logs (newest last), read when the card opens.
     logs: Vec<String>,
+    /// Their earlier Twitch names (newest first), once loaded.
+    names: Option<Result<Vec<crate::namehistory::OldName>, String>>,
+    names_rx: Option<Receiver<Result<Vec<crate::namehistory::OldName>, String>>>,
 }
 
 /// A Twitch profile, from Twitch's API (signed in) or api.ivr.fi.
@@ -65,13 +69,17 @@ impl LiveApp {
             profile: None,
             rx: None,
             logs: Vec::new(),
+            names: None,
+            names_rx: None,
         };
         if let Some(ch) = &channel {
             card.logs = read_logs(&self.log_dir(), ch, &user.name, 14, 200);
         }
         if self.demo {
             card.profile = Some(Ok(sample_profile(&user.name)));
+            card.names = Some(Ok(crate::namehistory::sample(&user.name)));
         } else if user.platform == Platform::Twitch {
+            start_names(&mut card, &user.user_id, &self.ctx);
             let (tx, rx) = std::sync::mpsc::channel();
             card.rx = Some(rx);
             let login = user.name.to_lowercase();
@@ -119,8 +127,17 @@ impl LiveApp {
         }
         let mut card = self.usercard.take()?;
         if let Some(r) = card.rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            // no user id from the chat line: the earlier names go by the profile's
+            if let (Ok(p), None, None) = (&r, &card.names, &card.names_rx) {
+                let id = p.id.clone();
+                start_names(&mut card, &id, ctx);
+            }
             card.profile = Some(r);
             card.rx = None;
+        }
+        if let Some(r) = card.names_rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
+            card.names = Some(r);
+            card.names_rx = None;
         }
         // their messages in this chat this session, and their colour and badges from them
         let mut session: Vec<(String, String)> = Vec::new();
@@ -356,6 +373,27 @@ impl LiveApp {
                         }
                         None => {}
                     }
+                    // their earlier Twitch names (logs.ivr.fi / logs.zonian.dev)
+                    if let Some(Ok(names)) = &card.names {
+                        let login = profile.as_ref().map(|p| p.login.clone()).unwrap_or_default();
+                        let earlier = crate::namehistory::previous(names, &[&card.name, &login]);
+                        if !earlier.is_empty() {
+                            ui.add_space(2.0);
+                            ui.label(egui::RichText::new("PREVIOUS NAMES").small().strong().color(p.tab_text));
+                            for n in earlier {
+                                ui.horizontal(|ui| {
+                                    ui.label(egui::RichText::new(&n.login).strong().color(p.text));
+                                    let when = match (n.first, n.last) {
+                                        (Some(a), Some(b)) => format!("{} – {}", short_date(a), short_date(b)),
+                                        (Some(a), None) => format!("since {}", short_date(a)),
+                                        (None, Some(b)) => format!("until {}", short_date(b)),
+                                        (None, None) => String::new(),
+                                    };
+                                    ui.label(egui::RichText::new(when).small().color(p.tab_text));
+                                });
+                            }
+                        }
+                    }
                     // actions
                     ui.add_space(6.0);
                     // one row: short labels, the details in the tooltips
@@ -524,6 +562,20 @@ impl LiveApp {
 
 /// The usercard's width.
 const CARD_W: f32 = 440.0;
+
+/// Starts loading a Twitch user's earlier names (by user id) for the card.
+fn start_names(card: &mut UserCard, user_id: &str, ctx: &egui::Context) {
+    if user_id.is_empty() {
+        return;
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    card.names_rx = Some(rx);
+    let (id, ctx) = (user_id.to_string(), ctx.clone());
+    std::thread::spawn(move || {
+        let _ = tx.send(crate::namehistory::load(&id));
+        ctx.request_repaint();
+    });
+}
 
 /// A small rounded label (role, fact, count).
 fn pill(ui: &mut egui::Ui, text: &str, fill: Color32, color: Color32) -> egui::Response {

@@ -21,6 +21,7 @@ mod kick_auth;
 mod logo;
 mod model;
 mod moderation;
+mod namehistory;
 mod otherchat;
 mod paths;
 mod platforms;

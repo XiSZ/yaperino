@@ -36,7 +36,7 @@ the sample data only (never real channels or accounts). See PUBLISHING.md > The 
 
 ```
 cargo build                 # target\debug\live-streams.exe (the binary keeps this old name)
-cargo test                  # 54 unit tests; 11 network tests are #[ignore]
+cargo test                  # 55 unit tests; 11 network tests are #[ignore]
 cargo build --release       # what a release ships, renamed Yaperino.exe
 cargo fmt                   # rustfmt's default style; CI fails on `cargo fmt --check`
 ```
@@ -68,7 +68,7 @@ and exits. It never loads sign-ins, never saves settings and never touches the n
 | `LIVE_STREAMS_SHOT_TABS=Left/Right/Bottom` | tab position |
 | `LIVE_STREAMS_SHOT_THEME=<theme>` | Dark, Black, Light, White |
 | `LIVE_STREAMS_SHOT_LOCK / _EMPTY / _MOLT / _MOD` | locked tab / empty tab / tab colours + source backgrounds / Moderation menu |
-| `LIVE_STREAMS_SHOT_USERCARD=1` | a usercard (with `LIVE_STREAMS_SHOT_MOD=1`: its moderation row and the sword) |
+| `LIVE_STREAMS_SHOT_USERCARD=1` | a usercard with sample previous names (with `LIVE_STREAMS_SHOT_MOD=1`: its moderation row and the sword) |
 | `LIVE_STREAMS_SHOT_TRANSLATE=1` | a German sample message with its translation under it, auto-translate on (`_MENU=split` shows the toggle); with `_SETTINGS=customization`: General scrolled to Translation |
 | `LIVE_STREAMS_SHOT_REPLY=1` / `_THREAD=1` | a sample reply and the "Replying to" bar / the reply thread window |
 | `LIVE_STREAMS_SHOT_SEARCH=<text>` | the search across all chats (Ctrl+Shift+F) with that text |
@@ -101,6 +101,7 @@ Network tests: `LIVE_STREAMS_TEST_LOGIN` (Chatterino login-info format), then
 | `plugins.rs` | Lua 5.4 plugins (`c2` API subset, permissions, sandbox) |
 | `emotes.rs` | Twitch / 7TV / BTTV / FFZ / Kick emotes and badges |
 | `translate.rs` (child of app) | message translation: Google (keyless) or DeepL (own key), `parse_google` / `parse_deepl`, the throttled queue (`Translator`), message menu > Translate, split menu > Auto-translate |
+| `namehistory.rs` | the usercard's previous names: logs.ivr.fi, fallback logs.zonian.dev, by Twitch user id; cached for the session |
 | `spell.rs` | spellcheck of the message box: the built-in English Hunspell dictionary (`assets/dictionaries`, loaded in the background), `misspelled` (what chat leaves alone), `suggestions` |
 | `paths.rs` | Yaperino's folders on each system (`app_dir`, `local_dir`) |
 | `streamlink.rs`, `browser.rs`, `install.rs`, `logo.rs`, `demo.rs` | Streamlink, open URLs (`open` / `xdg-open` off Windows), per-user install/uninstall (Windows), drawn logo, sample data |

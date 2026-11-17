@@ -85,8 +85,8 @@ Modelled on Chatty's "Live Streams" list.
 - **From Moltorino**: /hide and /unhide, /chatters, /export (chat to text and JSON),
   clickable #channel names and a counter for repeated messages.
 - **Usercards**: click a name for their picture, roles, account date, when they followed
-  the channel (for moderators), their messages here and in your chat logs, and buttons to
-  mention, hide or moderate them.
+  the channel (for moderators), their earlier Twitch names (from logs.ivr.fi), their
+  messages here and in your chat logs, and buttons to mention, hide or moderate them.
 - **Replies**: right-click a Twitch message > Reply. Replies show what they answer; click
   that line to see the whole thread.
 - **Search across all chats** (Ctrl+Shift+F): one search over every open chat; click a match
