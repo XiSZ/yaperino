@@ -29,6 +29,7 @@ mod rules;
 mod streamlink;
 mod style;
 mod tiktokchat;
+mod tray;
 mod weblogin;
 mod youtube_auth;
 

@@ -571,6 +571,12 @@ impl LiveApp {
         heading(ui, "Window", TEXT);
         ui.checkbox(&mut look.own_title_bar, "Use Yaperino's own title bar (account, settings and window buttons on top, like Chatterino)");
         ui.checkbox(&mut self.settings.always_on_top, "Always on top");
+        if cfg!(windows) {
+            ui.checkbox(
+                &mut self.settings.hide_to_tray,
+                "Close to the tray: closing hides Yaperino by the clock (its icon brings it back, its menu quits)",
+            );
+        }
         // "Start with Windows" uses the Windows registry
         if cfg!(windows) {
             let installed = *self

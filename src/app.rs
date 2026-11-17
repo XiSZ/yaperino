@@ -213,6 +213,8 @@ pub struct Settings {
     pub uploader_link: String,
     pub uploader_delete: String,
     pub always_on_top: bool,
+    /// Moltorino "Hide to tray": closing the window hides it to the tray (Windows).
+    pub hide_to_tray: bool,
     pub start_with_windows: bool,
     /// External tools > Custom stream player: a URI scheme put before the stream's address.
     pub custom_player: String,
@@ -339,6 +341,7 @@ impl Default for Settings {
                 .map(|s| s.to_string())
                 .collect(),
             always_on_top: false,
+            hide_to_tray: false,
             start_with_windows: false,
             custom_player: String::new(),
             plugins_enabled: false,
@@ -573,6 +576,9 @@ pub struct LiveApp {
     thread: Option<(String, String)>,
     /// Search across all chats (Ctrl+Shift+F), when open.
     global_search: Option<search::GlobalSearch>,
+    /// Hide to tray: the main window's handle and the tray icon (once used).
+    hwnd: Option<isize>,
+    tray: Option<crate::tray::Tray>,
     account: Option<Account>,
     account_status: String,
     account_loading: bool,
@@ -765,6 +771,8 @@ impl LiveApp {
             usercard: None,
             thread: None,
             global_search: None,
+            hwnd: None,
+            tray: None,
             account: None,
             account_status: "Not signed in".into(),
             account_loading: false,
@@ -3797,8 +3805,28 @@ fn resize_edges(ctx: &egui::Context) {
 }
 
 impl eframe::App for LiveApp {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // Hide to tray (Windows): closing hides the window instead of quitting, as long as the
+        // tray icon is there to bring it back (its menu's Quit really quits)
+        if self.settings.hide_to_tray
+            && self.shot.is_none()
+            && !crate::tray::QUIT.load(std::sync::atomic::Ordering::Relaxed)
+            && ctx.input(|i| i.viewport().close_requested())
+        {
+            if self.hwnd.is_none() {
+                self.hwnd = crate::tray::window_id(frame);
+            }
+            if let Some(h) = self.hwnd {
+                if self.tray.is_none() {
+                    self.tray = crate::tray::create(h, ctx.clone());
+                }
+                if self.tray.is_some() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    crate::tray::hide(h);
+                }
+            }
+        }
         // Settings: compiled highlights / ignores / filters, always on top
         self.refresh_matchers();
         self.poll_plugins();
