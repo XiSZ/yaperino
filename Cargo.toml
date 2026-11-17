@@ -10,6 +10,16 @@ description = "Yaperino: a Chatterino-style chat for Twitch, Kick, YouTube and T
 name = "live-streams"
 path = "src/main.rs"
 
+# Linux only: the Kick / YouTube sign-in window as a separate small program, so only it
+# needs WebKitGTK (see src/login_main.rs). Built with --features linux-login.
+[[bin]]
+name = "yaperino-login"
+path = "src/login_main.rs"
+required-features = ["linux-login"]
+
+[features]
+linux-login = ["dep:wry_linux", "dep:winit_linux", "dep:gtk"]
+
 [dependencies]
 # x11 and wayland: the window on Linux (both do nothing on Windows and macOS)
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "persistence", "clipboard", "links", "x11", "wayland"] }
@@ -32,10 +42,19 @@ getrandom = "0.3"
 egui_extras = { version = "0.37", features = ["all_loaders", "http", "gif", "webp"] }
 
 # Sign-in pages (Kick, YouTube) in a small login window, so no developer app is needed.
-# Not on Linux yet: there it would need WebKitGTK on every user's system (see weblogin.rs).
+# On Linux only the yaperino-login helper has them (WebKitGTK), under other names.
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 wry = "0.57"
 winit = "0.30"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+wry_linux = { package = "wry", version = "0.57", optional = true }
+winit_linux = { package = "winit", version = "0.30", optional = true }
+gtk = { version = "0.18", optional = true }
+
+# Notifications for live channels on Linux (D-Bus, in pure Rust) and macOS
+[target.'cfg(not(windows))'.dependencies]
+notify-rust = "4.19"
 
 [target.'cfg(windows)'.dependencies]
 # the Windows notification sound (highlights, live notifications)

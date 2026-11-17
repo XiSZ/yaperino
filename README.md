@@ -123,12 +123,14 @@ Needs Windows 10 or 11. Kick and YouTube sign-in use Microsoft Edge WebView2, wh
 ### Linux (experimental)
 
 1. Download **`Yaperino-linux-x86_64.tar.gz`**, extract it and run `./yaperino`.
-2. Kick and YouTube sign-in isn't available on Linux yet. Their chats can still be read, and
-   Twitch sign-in works.
+2. Signing in to Kick or YouTube opens a small sign-in window (`yaperino-login`, in the same
+   folder). It needs WebKitGTK 4.1: `sudo apt install libwebkit2gtk-4.1-0` on Ubuntu /
+   Debian, `sudo dnf install webkit2gtk4.1` on Fedora, `sudo pacman -S webkit2gtk-4.1` on
+   Arch. Everything else, including Twitch sign-in, works without it.
 
-Live notifications and sounds are Windows only so far. The Linux and macOS versions are new
-and haven't been tested on real computers yet: please report what works and what doesn't in
-the [issues](https://github.com/XiSZ/yaperino/issues).
+Live notifications and sounds work on all three systems. The Linux and macOS versions are
+new and haven't been tested on real computers yet: please report what works and what doesn't
+in the [issues](https://github.com/XiSZ/yaperino/issues).
 
 [Streamlink](https://streamlink.github.io/) is optional on every system, for "Open in
 Streamlink".

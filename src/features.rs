@@ -6,12 +6,33 @@
 use super::*;
 use crate::rules::{self, Hit, Ignore, Matchers, Rule};
 
-/// The Windows notification sound (Chatterino's highlight / live sound).
+/// The system's notification sound (Chatterino's highlight / live sound).
 pub fn play_sound() {
     #[cfg(windows)]
     unsafe {
         // MB_ICONASTERISK: the "Asterisk" / notification sound of the Windows sound scheme
         windows_sys::Win32::System::Diagnostics::Debug::MessageBeep(0x40);
+    }
+    // macOS: a built-in system sound, played by the system's own player
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("afplay")
+            .arg("/System/Library/Sounds/Glass.aiff")
+            .spawn();
+    }
+    // Linux: the desktop's "new message" sound (freedesktop sound theme); quietly nothing
+    // when neither player is installed
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let played = std::process::Command::new("canberra-gtk-play")
+            .args(["-i", "message-new-instant"])
+            .spawn()
+            .is_ok();
+        if !played {
+            let _ = std::process::Command::new("paplay")
+                .arg("/usr/share/sounds/freedesktop/stereo/message.oga")
+                .spawn();
+        }
     }
 }
 
@@ -102,7 +123,8 @@ pub fn register_app_id() {
     }
 }
 
-/// A Windows notification; `clicked` runs when it is clicked.
+/// A system notification; `clicked` runs when it is clicked (Windows and Linux; macOS shows
+/// it without a click action).
 pub fn show_toast(
     title: &str,
     text: &str,
@@ -128,12 +150,43 @@ pub fn show_toast(
             .or_else(|_| make(Toast::POWERSHELL_APP_ID).show())
             .map_err(|e| e.to_string())
     }
-    #[cfg(not(windows))]
+    // macOS: Notification Center (the app's bundle id, so it shows as Yaperino)
+    #[cfg(target_os = "macos")]
     {
-        let _ = (title, text, clicked);
-        Err("notifications are only on Windows".into())
+        let _ = clicked;
+        let _ = notify_rust::set_application(MAC_BUNDLE_ID);
+        notify_rust::Notification::new()
+            .summary(title)
+            .body(text)
+            .show()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    // Linux: the desktop's notifications (D-Bus); clicking one runs `clicked`
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let handle = notify_rust::Notification::new()
+            .appname(crate::APP_ID)
+            .summary(title)
+            .body(text)
+            .action("default", "Open chat")
+            .show()
+            .map_err(|e| e.to_string())?;
+        // waiting for the click blocks, so it gets its own thread
+        std::thread::spawn(move || {
+            handle.wait_for_action(|action| {
+                if action == "default" {
+                    clicked();
+                }
+            })
+        });
+        Ok(())
     }
 }
+
+/// The macOS app's bundle id (Info.plist in .github/workflows/build.yml).
+#[cfg(target_os = "macos")]
+const MAC_BUNDLE_ID: &str = "io.github.xisz.yaperino";
 
 // ------------------------------------------------------------- image uploader
 

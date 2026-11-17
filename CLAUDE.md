@@ -22,11 +22,15 @@ the sample data only (never real channels or accounts). See PUBLISHING.md > The 
 - Folders always come from `paths.rs` (`app_dir`, `local_dir`). Never read `APPDATA` /
   `LOCALAPPDATA` directly. On Windows they must stay exactly `%APPDATA%\Yaperino` and
   `%LOCALAPPDATA%\Yaperino` (a test checks it), or users lose their settings.
-- Windows-only code (registry, Win32, notifications, sounds, install, "Start with Windows")
-  stays behind `#[cfg(windows)]` / `cfg!(windows)`. Linux has no Kick / YouTube sign-in
-  window yet (`wry` would need WebKitGTK), so `wry` and `winit` are not built there.
-- Fonts: `style::read_system_font` maps the Windows font files to macOS / Linux fonts.
-  Emoji such as 💬 still show as boxes there (no monochrome emoji font on those systems).
+- Windows-only code (registry, Win32, install, "Start with Windows") stays behind
+  `#[cfg(windows)]` / `cfg!(windows)`. Notifications: WinRT toasts on Windows, `notify-rust`
+  on macOS / Linux; sounds: MessageBeep / `afplay` / `canberra-gtk-play` or `paplay`.
+- Linux sign-in window: the separate `yaperino-login` helper (src/login_main.rs, feature
+  `linux-login`, crates renamed `wry_linux` / `winit_linux` + `gtk`), so only it needs
+  WebKitGTK; the main Linux binary has no `wry` / `winit`. It forces X11 (XWayland) because a
+  web view inside a winit window doesn't work on Wayland. CI builds it on ubuntu-22.04.
+- Fonts: `style::read_system_font` maps the Windows font files to macOS / Linux fonts;
+  emoji come from the bundled Noto Emoji (assets/fonts, OFL) there.
 
 ## Build, test, run
 

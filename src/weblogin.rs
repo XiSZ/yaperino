@@ -1,17 +1,22 @@
 //! Sign-in without a developer app: the site's own login page in a small window
-//! (Microsoft Edge WebView2), the way desktop chat apps such as KickTalk sign in.
+//! (Microsoft Edge WebView2 on Windows, WKWebView on macOS, WebKitGTK on Linux), the way
+//! desktop chat apps such as KickTalk sign in.
 //!
-//! The window runs as a separate start of this program (`live-streams.exe --web-login kick`
-//! or `youtube`), because a program can only run one window loop. When the site has
-//! signed the person in, its cookies and the browser's user agent go back to the app
-//! over a pipe and the window closes by itself. Nothing is shown or logged.
-//! Each site keeps its own browser profile under %LOCALAPPDATA%\Yaperino\WebView2\<site>
-//! (outside Documents, where Windows' ransomware protection would block it).
+//! The window runs as a separate program start (`live-streams.exe --web-login kick` or
+//! `youtube`), because a program can only run one window loop. On Linux it is the separate
+//! `yaperino-login` helper (src/login_main.rs, feature "linux-login"), so that only it needs
+//! WebKitGTK. When the site has signed the person in, its cookies and the browser's user
+//! agent go back to the app over a pipe and the window closes by itself. Nothing is shown
+//! or logged. Each site keeps its own browser profile (`profile_dir`).
+
+// Linux: the helper's own copies of the window crates (Cargo.toml, feature "linux-login")
+#[cfg(all(target_os = "linux", feature = "linux-login"))]
+use {winit_linux as winit, wry_linux as wry};
 
 use std::path::PathBuf;
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(not(target_os = "linux"), feature = "linux-login"))]
 use std::sync::{Arc, Mutex};
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(not(target_os = "linux"), feature = "linux-login"))]
 use std::time::{Duration, Instant};
 
 /// The line the login window writes on its pipe, followed by the session as JSON.
@@ -78,7 +83,10 @@ pub fn url_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-#[cfg_attr(target_os = "linux", allow(dead_code))]
+#[cfg_attr(
+    all(target_os = "linux", not(feature = "linux-login")),
+    allow(dead_code)
+)]
 struct Site {
     title: &'static str,
     start: &'static str,
@@ -87,7 +95,10 @@ struct Site {
     needs: &'static [&'static str],
 }
 
-#[cfg_attr(target_os = "linux", allow(dead_code))]
+#[cfg_attr(
+    all(target_os = "linux", not(feature = "linux-login")),
+    allow(dead_code)
+)]
 fn site(name: &str) -> Option<Site> {
     match name {
         "kick" => Some(Site {
@@ -121,14 +132,21 @@ pub fn forget(site: &str) {
 
 /// In the app: opens the login window and waits until it closes.
 pub fn sign_in(site: &str) -> Result<WebSession, String> {
-    if cfg!(target_os = "linux") {
-        return Err(
-            "Kick and YouTube sign-in isn't available on Linux yet. Chat can still be read.".into(),
-        );
-    }
     use std::io::Read;
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // Linux: the window is the yaperino-login helper next to Yaperino
+    #[cfg(target_os = "linux")]
+    let exe = {
+        let helper = exe.with_file_name("yaperino-login");
+        if !helper.is_file() {
+            return Err(format!(
+                "Kick and YouTube sign-in on Linux needs the yaperino-login program next to \
+                 Yaperino (it comes in the Linux download). {WEBKIT_HINT}"
+            ));
+        }
+        helper
+    };
     let mut child = Command::new(exe)
         .args(["--web-login", site])
         .stdin(Stdio::null())
@@ -140,25 +158,43 @@ pub fn sign_in(site: &str) -> Result<WebSession, String> {
     if let Some(mut o) = child.stdout.take() {
         let _ = o.read_to_string(&mut out);
     }
-    let _ = child.wait();
-    out.lines()
+    let status = child.wait();
+    let session = out
+        .lines()
         .find_map(|l| l.strip_prefix(MARK))
         .and_then(|j| serde_json::from_str::<WebSession>(j).ok())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| "The sign-in window was closed before signing in".to_string())
+        .filter(|s| !s.is_empty());
+    if let Some(s) = session {
+        return Ok(s);
+    }
+    // Linux: 127 = the system couldn't start it (WebKitGTK missing), 6 = no window (GTK)
+    if cfg!(target_os = "linux") {
+        if let Ok(code @ (127 | 6)) = status.map(|s| s.code().unwrap_or(0)) {
+            return Err(format!(
+                "The sign-in window couldn't open ({code}). {WEBKIT_HINT}"
+            ));
+        }
+    }
+    Err("The sign-in window was closed before signing in".to_string())
 }
 
-// ---------------------------------------------------------------- the login window
-// Windows (WebView2) and macOS (WKWebView). Linux would need WebKitGTK and a GTK window,
-// which isn't done yet: there `run` only reports that.
+/// What Linux needs for the sign-in window.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const WEBKIT_HINT: &str = "It needs WebKitGTK 4.1: on Ubuntu / Debian \
+    `sudo apt install libwebkit2gtk-4.1-0`, on Fedora `sudo dnf install webkit2gtk4.1`, \
+    on Arch `sudo pacman -S webkit2gtk-4.1`.";
 
-#[cfg(target_os = "linux")]
+// ---------------------------------------------------------------- the login window
+// Windows (WebView2), macOS (WKWebView) and, in the yaperino-login helper, Linux
+// (WebKitGTK inside an X11 window). The Linux app without the helper only reports that.
+
+#[cfg(all(target_os = "linux", not(feature = "linux-login")))]
 pub fn run(_site_name: &str) -> i32 {
-    eprintln!("Kick and YouTube sign-in isn't available on Linux yet");
+    eprintln!("This sign-in window is the yaperino-login program on Linux");
     5
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(not(target_os = "linux"), feature = "linux-login"))]
 struct Login {
     site: Site,
     context: wry::WebContext,
@@ -171,7 +207,7 @@ struct Login {
     failed: bool,
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(not(target_os = "linux"), feature = "linux-login"))]
 impl winit::application::ApplicationHandler for Login {
     fn resumed(&mut self, el: &winit::event_loop::ActiveEventLoop) {
         if self.window.is_some() {
@@ -225,8 +261,14 @@ impl winit::application::ApplicationHandler for Login {
     }
 
     fn about_to_wait(&mut self, el: &winit::event_loop::ActiveEventLoop) {
+        // Linux: WebKitGTK draws and reacts inside GTK's own loop, so it gets a turn often
+        #[cfg(target_os = "linux")]
+        while gtk::events_pending() {
+            gtk::main_iteration_do(false);
+        }
+        let tick = if cfg!(target_os = "linux") { 16 } else { 400 };
         el.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
-            Instant::now() + Duration::from_millis(400),
+            Instant::now() + Duration::from_millis(tick),
         ));
         if self.last.elapsed() < Duration::from_millis(800) {
             return;
@@ -268,11 +310,21 @@ impl winit::application::ApplicationHandler for Login {
 }
 
 /// `--web-login <site>`: runs the login window; returns the process exit code.
-#[cfg(not(target_os = "linux"))]
+#[cfg(any(not(target_os = "linux"), feature = "linux-login"))]
 pub fn run(site_name: &str) -> i32 {
     let Some(site) = site(site_name) else {
         return 2;
     };
+    // Linux: a web view inside a winit window works on X11 only, so on Wayland desktops this
+    // window uses their X11 compatibility (XWayland); GTK has to be started first
+    #[cfg(target_os = "linux")]
+    {
+        std::env::remove_var("WAYLAND_DISPLAY");
+        std::env::set_var("GDK_BACKEND", "x11");
+        if gtk::init().is_err() {
+            return 6;
+        }
+    }
     let context = wry::WebContext::new(profile_dir(site_name));
     let Ok(event_loop) = winit::event_loop::EventLoop::new() else {
         return 3;

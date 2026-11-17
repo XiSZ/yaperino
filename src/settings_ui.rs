@@ -2512,7 +2512,7 @@ impl LiveApp {
 }
 
 /// Open-source software Yaperino is built with (name, home page, license).
-const OPEN_SOURCE: [(&str, &str, &str); 14] = [
+const OPEN_SOURCE: [(&str, &str, &str); 16] = [
     (
         "egui / eframe",
         "https://github.com/emilk/egui",
@@ -2582,6 +2582,16 @@ const OPEN_SOURCE: [(&str, &str, &str); 14] = [
         "Streamlink (optional)",
         "https://streamlink.github.io",
         "BSD-2-Clause",
+    ),
+    (
+        "notify-rust (macOS, Linux)",
+        "https://github.com/hoodie/notify-rust",
+        "MIT OR Apache-2.0",
+    ),
+    (
+        "Noto Emoji font (macOS, Linux)",
+        "https://github.com/googlefonts/noto-emoji",
+        "OFL-1.1",
     ),
 ];
 

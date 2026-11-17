@@ -66,6 +66,11 @@ pub const FONTS: [(&str, &str, &str); 6] = [
     ("Consolas", "consola.ttf", "consolab.ttf"),
 ];
 
+/// Noto Emoji, black and white (SIL Open Font License 1.1, see
+/// assets/fonts/OFL-NotoEmoji.txt), for macOS and Linux only; Windows has Segoe UI Emoji.
+#[cfg(not(windows))]
+const NOTO_EMOJI: &[u8] = include_bytes!("../assets/fonts/NotoEmoji.ttf");
+
 /// Reads a font by its Windows file name (in C:\Windows\Fonts). On macOS and Linux the
 /// closest font that comes with the system is used: Arial and Apple Symbols on macOS,
 /// Liberation Sans (looks like Arial), DejaVu Sans and Noto Sans Symbols 2 on Linux.
@@ -179,7 +184,8 @@ pub fn apply(ctx: &egui::Context, look: &Appearance) {
     let regular = load("ui-regular", reg_file).or_else(|| load("segoeui", "segoeui.ttf"));
     let semibold = load("ui-bold", bold_file).or_else(|| load("segoeuib", "segoeuib.ttf"));
     let arialbd = load("arialbd", "arialbd.ttf");
-    let back: Vec<String> = [
+    #[allow(unused_mut)]
+    let mut back: Vec<String> = [
         ("seguisym", "seguisym.ttf"),
         ("seguiemj", "seguiemj.ttf"),
         ("msyh", "msyh.ttc"),
@@ -187,6 +193,16 @@ pub fn apply(ctx: &egui::Context, look: &Appearance) {
     .iter()
     .filter_map(|(k, f)| load(k, f))
     .collect();
+    // macOS and Linux: emoji such as 💬 and ✨ from the bundled black-and-white font (their
+    // own emoji fonts are in colour, which egui can't draw)
+    #[cfg(not(windows))]
+    {
+        fonts.font_data.insert(
+            "noto-emoji".into(),
+            Arc::new(FontData::from_static(NOTO_EMOJI)),
+        );
+        back.push("noto-emoji".into());
+    }
     let default_prop = fonts
         .families
         .get(&FontFamily::Proportional)
