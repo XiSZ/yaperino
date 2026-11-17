@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yaperino: one chat for Twitch, Kick, YouTube and TikTok</title>
+<meta name="description" content="Yaperino is a free desktop chat app that puts Twitch, Kick, YouTube and TikTok chat in one window, with Chatterino-style tabs and splits and a Chatty-style list of who's live.">
+<meta property="og:title" content="Yaperino">
+<meta property="og:description" content="One chat for Twitch, Kick, YouTube and TikTok.">
+<meta property="og:image" content="https://xisz.github.io/yaperino/img/chats.png">
+<meta property="og:url" content="https://xisz.github.io/yaperino/">
+<meta name="theme-color" content="#4a1da8">
+<link rel="icon" type="image/png" href="img/logo.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="./"><img src="img/logo.png" alt="" width="32" height="32"><span>Yaperino</span></a>
+  <nav>
+    <a href="#features">Features</a>
+    <a href="#download">Download</a>
+    <a href="changelog.html">Changelog</a>
+    <a href="https://github.com/XiSZ/yaperino">GitHub</a>
+  </nav>
+</header>
+
+<main>
+<section class="hero">
+  <img class="hero-logo" src="img/logo.png" alt="Yaperino logo" width="128" height="128">
+  <h1>One chat for Twitch, Kick, YouTube and TikTok.</h1>
+  <p class="lead">Yaperino puts every stream's chat in one window. It works like Chatterino, with tabs, splits and hotkeys, and adds a Chatty-style list of the channels you follow that are live right now.</p>
+  <div class="platforms" aria-label="Supported platforms">
+    <span class="pf"><svg viewBox="0 0 24 24" class="pf-icon twitch" aria-hidden="true"><rect width="24" height="24" rx="5"/><path d="M6.5 6h11v7.5l-3 3h-3l-2 2v-2h-3z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M11 9v3M14.5 9v3" stroke="#fff" stroke-width="1.6"/></svg>Twitch</span>
+    <span class="pf"><svg viewBox="0 0 24 24" class="pf-icon kick" aria-hidden="true"><rect width="24" height="24" rx="5"/><path d="M8 6v12M8 12l6-6M8 12l6 6" stroke="#000" stroke-width="2.6" fill="none" stroke-linecap="square"/></svg>Kick</span>
+    <span class="pf"><svg viewBox="0 0 24 24" class="pf-icon youtube" aria-hidden="true"><rect width="24" height="24" rx="5"/><path d="M9.5 7.5v9l7-4.5z" fill="#fff"/></svg>YouTube</span>
+    <span class="pf"><svg viewBox="0 0 24 24" class="pf-icon tiktok" aria-hidden="true"><rect width="24" height="24" rx="5"/><path d="M13.5 5.5v9.2a2.6 2.6 0 1 1-2.6-2.6M13.5 5.5c.4 2 1.9 3.4 3.8 3.6" fill="none" stroke="#25f4ee" stroke-width="1.8" transform="translate(-.6 .4)"/><path d="M13.5 5.5v9.2a2.6 2.6 0 1 1-2.6-2.6M13.5 5.5c.4 2 1.9 3.4 3.8 3.6" fill="none" stroke="#fe2c55" stroke-width="1.8" transform="translate(.6 -.4)"/><path d="M13.5 5.5v9.2a2.6 2.6 0 1 1-2.6-2.6M13.5 5.5c.4 2 1.9 3.4 3.8 3.6" fill="none" stroke="#fff" stroke-width="1.8"/></svg>TikTok</span>
+  </div>
+  <div class="cta">
+    <a id="main-download" class="button big" href="#download">Download Yaperino</a>
+    <p class="cta-note"><span id="other-systems">For Windows, macOS and Linux</span> · free and open source · {{VERSION}}</p>
+  </div>
+  <figure class="hero-shot">
+    <img src="img/chats.png" alt="Yaperino with two chat splits showing Twitch, Kick and YouTube messages side by side" width="1570" height="950">
+  </figure>
+</section>
+
+<section id="features" class="features">
+  <h2>What Yaperino does</h2>
+
+  <article class="feature">
+    <div class="text">
+      <h3>One chat, every platform</h3>
+      <p>Join a streamer once and Yaperino joins their chat on Twitch, Kick, YouTube and TikTok together. Every message starts with its platform's logo, so you always know where it came from.</p>
+    </div>
+    <img src="img/onechat.png" alt="Chat messages from Twitch, Kick and YouTube, each with a platform logo" loading="lazy" width="786" height="214">
+  </article>
+
+  <article class="feature flip">
+    <div class="text">
+      <h3>Who's live, at a glance</h3>
+      <p>The Live Streams window (Alt+L) lists every channel you follow that is live right now, like Chatty does: uptime, viewers, game and title, sorted the way you like. One click opens the chat; pick several to open them as tabs or splits.</p>
+    </div>
+    <img src="img/live.png" alt="The Live Streams window listing live channels with title, game, viewers and uptime" loading="lazy" width="1570" height="950">
+  </article>
+
+  <article class="feature">
+    <div class="text">
+      <h3>Choose where to send</h3>
+      <p>The logo button next to the message box picks the platform your message goes to. Platforms you can't send to are greyed out, with the reason on hover.</p>
+    </div>
+    <img src="img/picker.png" alt="The platform picker next to the message box with Twitch, Kick, YouTube and TikTok" loading="lazy" width="420" height="170">
+  </article>
+
+  <article class="feature flip">
+    <div class="text">
+      <h3>All the emotes</h3>
+      <p>Twitch, 7TV, BetterTTV, FrankerFaceZ and Kick emotes, an emote menu (Ctrl+E) and Tab completion for emotes and names.</p>
+    </div>
+    <img src="img/emotes-chat.png" alt="Chat messages with 7TV and BetterTTV emotes" loading="lazy" width="430" height="160">
+  </article>
+
+  <article class="feature">
+    <div class="text">
+      <h3>Make it yours</h3>
+      <p>Dark, Black, Light and White themes, your accent colour, fonts and zoom. Settings are laid out like chatterino7's, with a search box.</p>
+    </div>
+    <img src="img/settings.png" alt="The Customization settings page" loading="lazy" width="1570" height="950">
+  </article>
+
+  <div class="grid">
+    <div class="card"><h4>Tabs and splits</h4><p>Drag, lock, colour and pop out tabs. Chatterino's hotkeys work, and you can change them.</p></div>
+    <div class="card"><h4>Mod tools</h4><p>Timeouts, bans, chat modes, polls, predictions, raids and more through Twitch's API.</p></div>
+    <div class="card"><h4>Highlights and filters</h4><p>Highlights, ignores, nicknames, custom commands and Chatterino's filter language.</p></div>
+    <div class="card"><h4>Streamlink</h4><p>Open any stream in your own video player, for Twitch, Kick, YouTube and TikTok.</p></div>
+    <div class="card"><h4>Lua plugins</h4><p>Chatterino-style plugins, sandboxed, with permissions you grant.</p></div>
+    <div class="card"><h4>Your data stays yours</h4><p>No account with us, no tracking. Settings and sign-ins stay on your computer. <a href="privacy.html">Privacy</a></p></div>
+  </div>
+</section>
+
+<section id="download" class="download">
+  <h2>Download</h2>
+  <p class="muted">Latest version: {{VERSION}} ({{RELEASE_DATE}}). Older versions are on the <a href="changelog.html">changelog</a>.</p>
+  <div class="tiles">
+    <div class="tile" data-os="windows">
+      <h3>Windows</h3>
+      <a class="button" href="https://github.com/XiSZ/yaperino/releases/latest/download/Yaperino.exe">Download Yaperino.exe</a>
+      <p>Start it, nothing else to install. Windows may say the program is unknown because it isn't code-signed: click <em>More info &gt; Run anyway</em>. Settings &gt; About &gt; Install Yaperino adds it to Start.</p>
+      <p class="muted">Windows 10 or 11</p>
+    </div>
+    <div class="tile" data-os="macos">
+      <h3>macOS <span class="tag">experimental</span></h3>
+      <a class="button" href="https://github.com/XiSZ/yaperino/releases/latest/download/Yaperino-macos.zip">Download for macOS</a>
+      <p>Unzip and move Yaperino to Applications. The first time, macOS blocks it because it isn't signed by an Apple developer: open System Settings &gt; Privacy &amp; Security and click <em>Open Anyway</em>.</p>
+      <p class="muted">macOS 11 or newer, Apple Silicon and Intel</p>
+    </div>
+    <div class="tile" data-os="linux">
+      <h3>Linux <span class="tag">experimental</span></h3>
+      <a class="button" href="https://github.com/XiSZ/yaperino/releases/latest/download/Yaperino-linux-x86_64.tar.gz">Download for Linux</a>
+      <p>Extract it and run <code>./yaperino</code>. Kick and YouTube sign-in isn't available on Linux yet; reading their chats works.</p>
+      <p class="muted">64-bit (x86_64)</p>
+    </div>
+  </div>
+  <p class="muted small">The macOS and Linux versions are new and not tested on real computers yet. Please <a href="https://github.com/XiSZ/yaperino/issues">report</a> what works and what doesn't.</p>
+</section>
+
+<section class="more">
+  <div class="card wide">
+    <h3>Found a bug or have an idea?</h3>
+    <p>Open an issue on GitHub. Yaperino is open source under the MIT license, and contributions are welcome.</p>
+    <a class="button ghost" href="https://github.com/XiSZ/yaperino/issues">Report a bug or suggest a feature</a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <p>Yaperino is its own code, written in Rust. Its looks and behaviour follow Chatterino, chatterino7, Moltorino and Chatty. It is not affiliated with them or with Twitch, Kick, YouTube or TikTok.</p>
+  <p><a href="https://github.com/XiSZ/yaperino">GitHub</a> · <a href="changelog.html">Changelog</a> · <a href="privacy.html">Privacy</a> · <a href="https://github.com/XiSZ/yaperino/blob/main/LICENSE">MIT license</a></p>
+</footer>
+<script src="main.js"></script>
+</body>
+</html>

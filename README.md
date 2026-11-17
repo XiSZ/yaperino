@@ -18,6 +18,8 @@ channels you follow that are live right now, where one click opens their chat.
 
 It is its own code, written in Rust with egui. It isn't a fork of Chatterino's C++ code.
 
+**Website: [xisz.github.io/yaperino](https://xisz.github.io/yaperino/)**
+
 ## Features
 
 ### One chat for every platform

@@ -6,6 +6,14 @@ window (Alt+L) listing followed channels that are live. Rust + egui/eframe 0.37,
 first; Linux and macOS builds are experimental (see "Linux and macOS" below). The person who
 owns it doesn't code: explain results in plain words.
 
+## Website
+
+`site/` is the website (https://xisz.github.io/yaperino/), plain HTML/CSS with no external
+fonts, scripts or trackers. `site/build.py` fills in `{{VERSION}}`, `{{RELEASE_DATE}}` and
+`{{CHANGELOG}}` from the GitHub releases; `.github/workflows/pages.yml` publishes it on
+changes to `site/` and after each release. Website screenshots come from screenshot mode with
+the sample data only (never real channels or accounts). See PUBLISHING.md > The website.
+
 ## Linux and macOS
 
 - GitHub builds all three (`.github/workflows/build.yml`) and takes `--screenshot` pictures

@@ -51,6 +51,20 @@ GitHub's workflow (`.github/workflows/build.yml`) checks formatting, runs the te
 By hand instead: `cargo build --release` (with your `twitch_client_id.txt` in place), then
 attach `target\release\live-streams.exe`, renamed `Yaperino.exe`, to a GitHub release.
 
+## The website
+
+https://xisz.github.io/yaperino/ is built from `site/` and published by
+`.github/workflows/pages.yml` (GitHub Pages, free). It updates by itself:
+
+- after every release: the version, the download buttons (they always point to the latest
+  release) and the changelog (the commit titles of each release; commits starting with
+  `Version`, `README:`, `CLAUDE.md:` or `Build:` are left out);
+- when anything in `site/` changes on `main`.
+
+To change the text, edit `site/index.html`. The screenshots in `site/img/` come from the
+app's screenshot mode (see CLAUDE.md). Preview locally: `python site/build.py`, then open
+`_site/index.html` through a local web server (`python -m http.server --directory _site`).
+
 ## Twitch Client ID for GitHub's builds
 
 Releases built by GitHub get the Twitch Client ID from the repository secret
