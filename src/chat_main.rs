@@ -48,6 +48,10 @@ struct MainActions {
     drop_page: Option<(usize, usize)>,
     lock_page: Option<usize>,
     tab_color: Option<(usize, Option<[u8; 3]>)>,
+    /// Tab menu > Move to group: (tab, group; empty = none).
+    set_group: Option<(usize, String)>,
+    /// A group chip in the tab bar: collapse or expand that group.
+    toggle_group: Option<String>,
     always_visible: Option<usize>,
     /// Local commands (/hide, /unhide, /chatters, /export): handled here, never sent.
     hide_user: Option<(String, bool)>,
@@ -974,12 +978,61 @@ impl LiveApp {
                         ..TabPage::default()
                     });
                 }
+                if std::env::var("LIVE_STREAMS_SHOT_GROUPS").is_ok() {
+                    // two sample groups, the second one collapsed
+                    for (i, pg) in self.pages.iter_mut().enumerate() {
+                        pg.group = match i {
+                            2..=6 => "Friends".into(),
+                            7..=14 => "FPS".into(),
+                            _ => String::new(),
+                        };
+                    }
+                    self.settings.collapsed_groups = vec!["FPS".into()];
+                }
             }
             let layout_locked = self.settings.tabs_locked;
+            // Moltorino tab groups, in tab order (for the chips and the tab menu)
+            let mut groups: Vec<String> = Vec::new();
+            for pg in &self.pages {
+                if !pg.group.is_empty() && !groups.contains(&pg.group) {
+                    groups.push(pg.group.clone());
+                }
+            }
+            let mut chipped: Vec<String> = Vec::new();
             // the shown tabs' places, for dropping a dragged tab between them
             let mut places: Vec<(usize, egui::Rect)> = Vec::new();
             for p in 0..self.pages.len() {
                 let page = self.pages[p].clone();
+                // a group's chip before its first tab: click to collapse / expand
+                let collapsed =
+                    !page.group.is_empty() && self.settings.collapsed_groups.contains(&page.group);
+                if !page.group.is_empty() && !chipped.contains(&page.group) {
+                    chipped.push(page.group.clone());
+                    let n = self.pages.iter().filter(|g| g.group == page.group).count();
+                    let text = format!("{} {}  {n}", if collapsed { "▸" } else { "▾" }, page.group);
+                    let mut b = egui::Button::new(
+                        egui::RichText::new(text).color(crate::style::theme::c().strong_text),
+                    )
+                    .fill(crate::style::theme::c().accent.gamma_multiply(0.3))
+                    .corner_radius(4);
+                    if vertical {
+                        b = b.min_size(Vec2::new(ui.available_width(), 22.0));
+                    }
+                    if ui
+                        .add(b)
+                        .on_hover_text(if collapsed {
+                            "Show the tabs of this group"
+                        } else {
+                            "Hide the tabs of this group (the shown tab stays)"
+                        })
+                        .clicked()
+                    {
+                        act.toggle_group = Some(page.group.clone());
+                    }
+                }
+                if collapsed && p != self.active_page {
+                    continue;
+                }
                 // General > Interface > Tab visibility: Only live tabs (the shown tab stays)
                 // (Moltorino "Always visible" tabs stay)
                 if self.settings.tab_live_only
@@ -1058,6 +1111,8 @@ impl LiveApp {
                     position: self.settings.appearance.tab_position.clone(),
                     color: page.color,
                     always_visible: page.always_visible,
+                    group: page.group.clone(),
+                    groups: groups.clone(),
                 };
                 r.context_menu(|ui| tab_menu(ui, act, &menu));
                 if self.shot.is_some()
@@ -2568,6 +2623,28 @@ impl LiveApp {
                 pg.locked = !pg.locked;
             }
         }
+        if let Some((p, g)) = act.set_group {
+            let g = g.trim().to_string();
+            if p < self.pages.len() {
+                self.pages[p].group = g.clone();
+                // keep a group's tabs together: next to its last other tab
+                if !g.is_empty() {
+                    if let Some(last) = (0..self.pages.len())
+                        .rev()
+                        .find(|&i| i != p && self.pages[i].group == g)
+                    {
+                        self.move_page_to(p, last + 1);
+                    }
+                }
+            }
+        }
+        if let Some(g) = act.toggle_group {
+            if let Some(i) = self.settings.collapsed_groups.iter().position(|c| *c == g) {
+                self.settings.collapsed_groups.remove(i);
+            } else {
+                self.settings.collapsed_groups.push(g);
+            }
+        }
         if let Some((p, c)) = act.tab_color {
             if let Some(pg) = self.pages.get_mut(p) {
                 pg.color = c;
@@ -3385,6 +3462,9 @@ struct TabMenu {
     position: String,
     color: Option<[u8; 3]>,
     always_visible: bool,
+    /// The tab's group and all groups there are.
+    group: String,
+    groups: Vec<String>,
 }
 
 /// Moltorino custom tab colours.
@@ -3459,6 +3539,37 @@ fn tab_menu(ui: &mut egui::Ui, act: &mut MainActions, m: &TabMenu) {
         act.lock_layout = true;
         ui.close();
     }
+    // Moltorino tab groups: a chip in the tab bar collapses / expands a group
+    ui.menu_button("Move to group", |ui| {
+        ui.set_min_width(200.0);
+        for g in &m.groups {
+            if ui.radio(m.group == *g, g.as_str()).clicked() {
+                act.set_group = Some((p, g.clone()));
+                ui.close();
+            }
+        }
+        if ui.radio(m.group.is_empty(), "No group").clicked() {
+            act.set_group = Some((p, String::new()));
+            ui.close();
+        }
+        ui.separator();
+        let id = ui.make_persistent_id("new-group-name");
+        let mut name: String = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+        ui.horizontal(|ui| {
+            let r = ui.add(
+                egui::TextEdit::singleline(&mut name)
+                    .hint_text("New group...")
+                    .desired_width(120.0),
+            );
+            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui.button("Create").clicked() || enter) && !name.trim().is_empty() {
+                act.set_group = Some((p, name.trim().to_string()));
+                name.clear();
+                ui.close();
+            }
+        });
+        ui.data_mut(|d| d.insert_temp(id, name));
+    });
     // Moltorino: custom tab colour and "Always visible"
     ui.menu_button("Tab color", |ui| {
         if ui.radio(m.color.is_none(), "None").clicked() {

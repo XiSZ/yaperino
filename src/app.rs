@@ -183,6 +183,8 @@ pub struct Settings {
     pub tabs_hide_lock: bool,
     /// Moltorino: thinner tab lines and tighter tab spacing.
     pub tabs_compact: bool,
+    /// Collapsed tab groups (their tabs hidden but the shown one).
+    pub collapsed_groups: Vec<String>,
     /// Moltorino /hide: users whose messages are hidden here (not blocked, not banned).
     pub hidden_users: Vec<String>,
     /// Moltorino message source display: a platform-coloured background behind messages.
@@ -313,6 +315,7 @@ impl Default for Settings {
             tabs_locked: false,
             tabs_hide_lock: false,
             tabs_compact: false,
+            collapsed_groups: Vec::new(),
             hidden_users: Vec::new(),
             source_background: false,
             collapse_repeats: false,
@@ -381,6 +384,8 @@ pub struct TabPage {
     pub color: Option<[u8; 3]>,
     /// Moltorino "Always visible": shown even when only live tabs are shown.
     pub always_visible: bool,
+    /// Moltorino tab group (tab menu > Move to group); empty = none.
+    pub group: String,
 }
 
 impl TabPage {
