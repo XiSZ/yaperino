@@ -1968,10 +1968,10 @@ impl LiveApp {
             }
             None => {}
         }
-        if ui
-            .interact(msg_rect, id.with("area"), Sense::click())
-            .clicked()
-        {
+        // a click anywhere in the messages focuses the split. Read from the input, not with
+        // a widget over the messages: one drawn on top took every click from them (names,
+        // mod buttons, the message and emote menus)
+        if ui.input(|i| i.pointer.any_click()) && ui.rect_contains_pointer(msg_rect) {
             act.focus = Some(key.to_string());
         }
 
@@ -3631,33 +3631,101 @@ struct SplitMenu<'a> {
     auto_translate: bool,
 }
 
+/// The menus' look: roomier rows, a soft rounded accent highlight instead of a box.
+pub(super) fn menu_look(ui: &mut egui::Ui) {
+    let accent = crate::style::theme::c().accent;
+    let s = ui.style_mut();
+    s.spacing.button_padding = Vec2::new(8.0, 5.0);
+    s.spacing.item_spacing.y = 1.0;
+    let v = &mut s.visuals.widgets;
+    for w in [&mut v.hovered, &mut v.active, &mut v.open] {
+        w.weak_bg_fill = accent.gamma_multiply(0.25);
+        w.bg_fill = accent.gamma_multiply(0.25);
+        w.bg_stroke = Stroke::NONE;
+        w.corner_radius = 5.into();
+        w.expansion = 0.0;
+    }
+}
+
+/// A menu entry's contents: a fixed-width icon in the accent colour, then the label (also
+/// for submenu buttons, so everything lines up).
+pub(super) fn menu_atoms<'a>(
+    icon: &'a str,
+    label: impl Into<egui::RichText>,
+) -> (egui::Atom<'a>, egui::Atom<'a>) {
+    use egui::AtomExt;
+    (
+        egui::RichText::new(icon)
+            .color(crate::style::theme::c().accent)
+            .atom_size(Vec2::new(20.0, 16.0)),
+        egui::Atom::from(label.into()),
+    )
+}
+
+/// A menu entry: icon, label, and the shortcut dim on the right.
+pub(super) fn menu_entry<'a>(
+    icon: &'a str,
+    label: impl Into<egui::RichText>,
+    shortcut: &'a str,
+) -> egui::Button<'a> {
+    let c = crate::style::theme::c();
+    let b = egui::Button::new(menu_atoms(icon, label));
+    if shortcut.is_empty() {
+        b
+    } else {
+        b.shortcut_text(egui::RichText::new(shortcut).small().color(c.system))
+    }
+}
+
+/// An on/off menu entry: a check on the right while it's on.
+fn menu_toggle<'a>(icon: &'a str, label: &'a str, on: bool) -> egui::Button<'a> {
+    menu_entry(icon, label, if on { "✔" } else { "" })
+}
+
+/// A small section title in a menu.
+pub(super) fn menu_heading(ui: &mut egui::Ui, title: &str) {
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new(title)
+            .small()
+            .strong()
+            .color(crate::style::theme::c().system),
+    );
+}
+
 /// The split menu (Chatterino's split menu, with the live list's watch items).
 fn split_menu(ui: &mut egui::Ui, act: &mut MainActions, m: &SplitMenu) {
-    ui.set_min_width(230.0);
+    menu_look(ui);
+    ui.set_min_width(250.0);
     let key = m.key;
-    if ui.button("Change channel   Ctrl+R").clicked() {
+    menu_heading(ui, "SPLIT");
+    if ui
+        .add(menu_entry("🔀", "Change channel", "Ctrl+R"))
+        .clicked()
+    {
         act.change_channel = Some(key.to_string());
         ui.close();
     }
-    if ui.button("Pop out   Ctrl+N").clicked() {
+    if ui.add(menu_entry("⬈", "Pop out", "Ctrl+N")).clicked() {
         act.popup_split = Some(key.to_string());
         ui.close();
     }
     if ui
-        .add_enabled(m.pos > 0, egui::Button::new("Move left"))
+        .add_enabled(m.pos > 0, menu_entry("◀", "Move left", ""))
         .clicked()
     {
         act.move_split = Some((m.host, key.to_string(), -1));
         ui.close();
     }
     if ui
-        .add_enabled(m.pos + 1 < m.count, egui::Button::new("Move right"))
+        .add_enabled(m.pos + 1 < m.count, menu_entry("▶", "Move right", ""))
         .clicked()
     {
         act.move_split = Some((m.host, key.to_string(), 1));
         ui.close();
     }
     ui.separator();
+    menu_heading(ui, "WATCH");
     super::watch_items(ui, &mut act.row, &m.channels, key, key);
     // External tools > Custom stream player: the scheme before the stream's address
     if let (Some(scheme), Some((p, n))) = (&m.custom_player, m.channels.first()) {
@@ -3669,8 +3737,15 @@ fn split_menu(ui: &mut egui::Ui, act: &mut MainActions, m: &SplitMenu) {
             ui.close();
         }
     }
+    ui.separator();
+    menu_heading(ui, "CHAT");
+    if ui.add(menu_entry("🔍", "Search", "Ctrl+F")).clicked() {
+        act.toggle_search = Some(key.to_string());
+        ui.close();
+    }
     // Filters (Settings > Filters): which ones this split uses
-    ui.menu_button("Set filters", |ui| {
+    ui.menu_button(menu_atoms("⚙", "Set filters"), |ui| {
+        menu_look(ui);
         if m.filters.is_empty() {
             ui.weak("No filters yet: Settings > Filters");
         }
@@ -3681,19 +3756,15 @@ fn split_menu(ui: &mut egui::Ui, act: &mut MainActions, m: &SplitMenu) {
             }
         }
     });
-    ui.separator();
-    if ui.button("Search   Ctrl+F").clicked() {
-        act.toggle_search = Some(key.to_string());
-        ui.close();
-    }
-    if ui.button("Clear messages").clicked() {
+    if ui.add(menu_entry("🧹", "Clear messages", "")).clicked() {
         act.clear = Some(key.to_string());
         ui.close();
     }
     if m.mod_tools {
         // Chatterino's moderation tools: chat modes and clearing (you must moderate the channel)
-        ui.menu_button("Moderation", |ui| {
+        ui.menu_button(menu_atoms("🛡", "Moderation"), |ui| {
             use crate::moderation::ModCommand as C;
+            menu_look(ui);
             ui.set_min_width(210.0);
             let items: [(&str, C); 12] = [
                 ("Slow mode (30s)", C::Slow(Some(30))),
@@ -3749,22 +3820,29 @@ fn split_menu(ui: &mut egui::Ui, act: &mut MainActions, m: &SplitMenu) {
         });
     }
     if ui
-        .button("Export chat (text + JSON)")
+        .add(menu_entry("💾", "Export chat (text + JSON)", ""))
         .on_hover_text("Saves this chat to %APPDATA%\\Yaperino\\Exports (also /export)")
         .clicked()
     {
         act.export = Some(key.to_string());
         ui.close();
     }
-    let mut n = m.notify;
-    if ui.checkbox(&mut n, "Notify when live").clicked() {
+    ui.separator();
+    menu_heading(ui, "OPTIONS");
+    if ui
+        .add(menu_toggle("🔔", "Notify when live", m.notify))
+        .clicked()
+    {
         act.toggle_notify = Some(key.to_string());
         ui.close();
     }
     // Moltorino: translate this chat's new messages (Settings > General > Translation)
-    let mut t = m.auto_translate;
     if ui
-        .checkbox(&mut t, "Auto-translate this chat")
+        .add(menu_toggle(
+            "🌐",
+            "Auto-translate this chat",
+            m.auto_translate,
+        ))
         .on_hover_text("New messages in other languages get a translation under them")
         .clicked()
     {
@@ -3772,7 +3850,8 @@ fn split_menu(ui: &mut egui::Ui, act: &mut MainActions, m: &SplitMenu) {
         ui.close();
     }
     ui.separator();
-    if ui.button("Close split   Ctrl+W").clicked() {
+    let close = egui::RichText::new("Close split").color(Color32::from_rgb(0xe8, 0x5c, 0x5c));
+    if ui.add(menu_entry("✕", close, "Ctrl+W")).clicked() {
         act.close_split = Some((m.host, key.to_string()));
         ui.close();
     }

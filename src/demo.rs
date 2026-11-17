@@ -166,7 +166,8 @@ pub fn chat_lines() -> Vec<ChatLine> {
         segs: Vec::new(),
         platform: crate::platforms::Platform::Twitch,
         msg_id: String::new(),
-        user_id: String::new(),
+        // a made-up id, so moderation buttons show in screenshots (with _MOD and the sword)
+        user_id: format!("{}", 1000 + n.len()),
         reply: None,
     };
     let mut lines = vec![

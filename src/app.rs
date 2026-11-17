@@ -3450,30 +3450,46 @@ fn watch_items(
     key: &str,
     group: &str,
 ) {
+    use chat_main::{menu_atoms, menu_entry, menu_look};
+    // an entry with its icon (the menus' look, see chat_main::menu_entry)
+    let item = |ui: &mut egui::Ui,
+                icon: &str,
+                label: &str,
+                action: &mut Option<RowAction>,
+                a: &dyn Fn() -> RowAction| {
+        if ui.add(menu_entry(icon, label, "")).clicked() {
+            *action = Some(a());
+            ui.close();
+        }
+    };
     if channels.len() <= 1 {
         if let Some((p, n)) = channels.first() {
             let (page, player) = watch_urls(*p, n);
-            item(ui, "Open in browser", action, || RowAction::OpenUrl(page));
+            item(ui, "🌐", "Open in browser", action, &|| {
+                RowAction::OpenUrl(page.clone())
+            });
             if let Some(player) = player {
-                item(ui, "Open player in browser", action, || {
-                    RowAction::OpenUrl(player)
+                item(ui, "▶", "Open player in browser", action, &|| {
+                    RowAction::OpenUrl(player.clone())
                 });
             }
         }
     } else {
-        ui.menu_button("Open in browser", |ui| {
+        ui.menu_button(menu_atoms("🌐", "Open in browser"), |ui| {
+            menu_look(ui);
             for (p, n) in channels {
                 let (page, _) = watch_urls(*p, n);
-                item(ui, &format!("{}  {n}", p.label()), action, || {
-                    RowAction::OpenUrl(page)
+                item(ui, "", &format!("{}  {n}", p.label()), action, &|| {
+                    RowAction::OpenUrl(page.clone())
                 });
             }
         });
-        ui.menu_button("Open player in browser", |ui| {
+        ui.menu_button(menu_atoms("▶", "Open player in browser"), |ui| {
+            menu_look(ui);
             for (p, n) in channels {
                 if let (_, Some(player)) = watch_urls(*p, n) {
-                    item(ui, &format!("{}  {n}", p.label()), action, || {
-                        RowAction::OpenUrl(player)
+                    item(ui, "", &format!("{}  {n}", p.label()), action, &|| {
+                        RowAction::OpenUrl(player.clone())
                     });
                 }
             }
@@ -3481,50 +3497,58 @@ fn watch_items(
     }
     // Streamlink has plugins for Twitch, Kick, YouTube and TikTok: one entry per platform
     // the streamer has (greyed out when the installed Streamlink lacks the plugin)
-    let sl_item =
-        |ui: &mut egui::Ui, action: &mut Option<RowAction>, label: &str, p: Platform, n: &str| {
-            let ok = crate::streamlink::known_support(p) != Some(false);
-            let r = ui.add_enabled(ok, egui::Button::new(label));
-            let r = if ok {
-                r
-            } else {
-                r.on_disabled_hover_text(format!(
-                    "The installed Streamlink has no {} plugin",
-                    p.label()
-                ))
-            };
-            if r.clicked() {
-                *action = Some(RowAction::StreamlinkOn(p, n.to_string(), group.to_string()));
-                ui.close();
-            }
+    let sl_item = |ui: &mut egui::Ui,
+                   action: &mut Option<RowAction>,
+                   icon: &str,
+                   label: &str,
+                   p: Platform,
+                   n: &str| {
+        let ok = crate::streamlink::known_support(p) != Some(false);
+        let r = ui.add_enabled(ok, menu_entry(icon, label, ""));
+        let r = if ok {
+            r
+        } else {
+            r.on_disabled_hover_text(format!(
+                "The installed Streamlink has no {} plugin",
+                p.label()
+            ))
         };
+        if r.clicked() {
+            *action = Some(RowAction::StreamlinkOn(p, n.to_string(), group.to_string()));
+            ui.close();
+        }
+    };
     if channels.len() <= 1 {
         match channels.first() {
-            Some((p, n)) => sl_item(ui, action, "Open in Streamlink", *p, n),
-            None => item(ui, "Open in Streamlink", action, || {
+            Some((p, n)) => sl_item(ui, action, "📺", "Open in Streamlink", *p, n),
+            None => item(ui, "📺", "Open in Streamlink", action, &|| {
                 RowAction::Streamlink(key.to_string())
             }),
         }
     } else {
-        ui.menu_button("Open in Streamlink", |ui| {
+        ui.menu_button(menu_atoms("📺", "Open in Streamlink"), |ui| {
+            menu_look(ui);
             for (p, n) in channels {
-                sl_item(ui, action, &format!("{}  {n}", p.label()), *p, n);
+                sl_item(ui, action, "", &format!("{}  {n}", p.label()), *p, n);
             }
         });
     }
     item(
         ui,
+        "🔗",
         "Platforms.. (Twitch, Kick, YouTube, TikTok)",
         action,
-        || RowAction::Platforms(group.to_string()),
+        &|| RowAction::Platforms(group.to_string()),
     );
     ui.separator();
     if let Some((p, n)) = channels.first() {
-        item(ui, "Copy channel name", action, || {
+        item(ui, "📋", "Copy channel name", action, &|| {
             RowAction::Copy(n.trim_start_matches('@').to_string())
         });
         let (page, _) = watch_urls(*p, n);
-        item(ui, "Copy channel URL", action, || RowAction::Copy(page));
+        item(ui, "📋", "Copy channel URL", action, &|| {
+            RowAction::Copy(page.clone())
+        });
     }
 }
 
@@ -3884,7 +3908,47 @@ fn resize_edges(ctx: &egui::Context) {
     }
 }
 
+/// Screenshot test only (LIVE_STREAMS_SHOT_CLICK="x,y;x,y right;..."): real mouse clicks,
+/// one every 100 frames from frame 300, so a picture shows what a click does.
+fn shot_clicks(frame: u32, raw: &mut egui::RawInput) {
+    let Ok(spec) = std::env::var("LIVE_STREAMS_SHOT_CLICK") else {
+        return;
+    };
+    for (i, c) in spec.split(';').enumerate() {
+        let start = 300 + 100 * i as u32;
+        if frame != start && frame != start + 2 {
+            continue;
+        }
+        let mut parts = c.split(|ch: char| ch == ',' || ch.is_whitespace());
+        let (Some(Ok(x)), Some(Ok(y))) = (
+            parts.next().map(|v| v.trim().parse::<f32>()),
+            parts.next().map(|v| v.trim().parse::<f32>()),
+        ) else {
+            continue;
+        };
+        let button = if c.contains("right") {
+            egui::PointerButton::Secondary
+        } else {
+            egui::PointerButton::Primary
+        };
+        let pos = Pos2::new(x, y);
+        raw.events.push(egui::Event::PointerMoved(pos));
+        raw.events.push(egui::Event::PointerButton {
+            pos,
+            button,
+            pressed: frame == start,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+}
+
 impl eframe::App for LiveApp {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        if let Some(s) = &self.shot {
+            shot_clicks(s.frames, raw_input);
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         // Hide to tray (Windows): closing hides the window instead of quitting, as long as the

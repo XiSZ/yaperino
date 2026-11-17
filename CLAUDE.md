@@ -75,6 +75,7 @@ and exits. It never loads sign-ins, never saves settings and never touches the n
 | `LIVE_STREAMS_SHOT_GROUPS=1` | with `_MANY_TABS`: two tab groups, "FPS" collapsed |
 | `LIVE_STREAMS_SHOT_AUTOMOD=1` | with `_MOD=1`: two held AutoMod messages (one waiting, one denied) and a pinned message bar |
 | `LIVE_STREAMS_SHOT_UNBAN=1` / `_MODLOGS=1` | the unban requests window / the mod log window, with sample data |
+| `LIVE_STREAMS_SHOT_CLICK="x,y;x,y right;..."` | real mouse clicks (one every 100 frames from frame 300) before the picture, to check what a click does (e.g. `110,152` opens a usercard with `_CHATS`) |
 | `LIVE_STREAMS_SHOT_CAROUSEL=<text>` | that text typed in the first chat (e.g. `:ca` for the emote carousel; with `LIVE_STREAMS_REAL=1` for real emotes) |
 | `LIVE_STREAMS_SHOT_MANY_TABS=1` | 21 sample tabs: more than fit, to check wrapping (top/bottom) and scrolling (left/right) |
 | `LIVE_STREAMS_SHOT_EMOTES / _OPEN / _MULTI / _PLATFORMS / _COMPLETE` | emote window / open-channel dialog / multi-select / platforms / completion |
@@ -116,6 +117,13 @@ Network tests: `LIVE_STREAMS_TEST_LOGIN` (Chatterino login-info format), then
 - **UI collects, then applies.** Widgets write into `MainActions` (chat window) or
   `RowAction` (live list); `apply_main_actions` / `run_action` change the state after
   drawing. Add a field there instead of mutating state inside a closure.
+- **Never put a click-sensing widget over the messages after drawing them.** egui gives
+  the click to the top-most widget, so it takes every click from the lines below (this
+  once broke names, mod buttons and the message menu). Read such clicks from the input
+  instead (`i.pointer.any_click()` + `ui.rect_contains_pointer`), and check clicks with
+  `LIVE_STREAMS_SHOT_CLICK`.
+- **Menus** use `chat_main::menu_look` / `menu_entry` / `menu_heading` (icon, label,
+  shortcut on the right).
 - **New setting:** add the field to `Settings` (it's `#[serde(default)]`) *and* to its
   `Default` impl, then a control on the right Settings page. Same for `TabPage`.
 - **New hotkey:** add it to `hotkeys::ACTIONS` (shows up in Settings > Hotkeys), handle it
