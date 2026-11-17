@@ -168,6 +168,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/download-artifact@v8
         with:
@@ -187,3 +188,10 @@ jobs:
             - **Linux (experimental):** `Yaperino-linux-x86_64.tar.gz`. Extract it and run `./yaperino`. Kick and YouTube sign-in needs WebKitGTK 4.1 (`sudo apt install libwebkit2gtk-4.1-0` on Ubuntu / Debian).
 
             Linux and macOS builds are new and not tested on real computers yet: please report problems in the issues.
+
+      # A release made by this workflow doesn't start other workflows on its own, so start
+      # the website's build here: it shows the new version, download and changelog.
+      - name: Update the website
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --repo "${{ github.repository }}" --ref main
