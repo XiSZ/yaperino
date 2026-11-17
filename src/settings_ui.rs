@@ -139,6 +139,9 @@ pub struct SettingsUi {
     pub logo: Option<egui::TextureHandle>,
     pub installed: Option<bool>,
     pub install_message: String,
+    /// Settings backup: the last result, and a file to import.
+    pub backup_message: String,
+    pub backup_import: String,
     /// About > Open source software: rows whose license is shown.
     pub shown_licenses: Vec<usize>,
     /// The sub-tab of pages with tabs (Highlights, Ignores, Live Notifications).
@@ -2863,6 +2866,80 @@ impl LiveApp {
                 };
                 self.settings_ui.installed = None;
             }
+        }
+        // Moltorino's Settings Manager
+        let mut backup_now = false;
+        let mut restore: Option<PathBuf> = None;
+        let backups = super::backup::list_backups();
+        let message = self.settings_ui.backup_message.clone();
+        let auto = &mut self.settings.auto_backup;
+        let import = &mut self.settings_ui.backup_import;
+        about_box(ui, "Settings backup", |ui| {
+            ui.label("Back up your settings, or go back to an earlier backup. Backups never hold sign-ins: your accounts stay as they are.");
+            ui.checkbox(
+                auto,
+                "Back up automatically once a day (the last 10 are kept)",
+            );
+            ui.horizontal(|ui| {
+                if ui.button("Back up now").clicked() {
+                    backup_now = true;
+                }
+                if ui.button("Open the backups folder").clicked() {
+                    let dir = super::backup::backup_dir();
+                    let _ = std::fs::create_dir_all(&dir);
+                    crate::browser::open_url(&dir.display().to_string());
+                }
+            });
+            if !message.is_empty() {
+                ui.label(&message);
+            }
+            if !backups.is_empty() {
+                ui.add_space(4.0);
+                ui.label("Restore a backup (the current settings are backed up first):");
+                for b in backups.iter().take(10) {
+                    ui.horizontal(|ui| {
+                        let name = b.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        ui.monospace(
+                            name.trim_start_matches("yaperino-settings-")
+                                .trim_end_matches(".json"),
+                        );
+                        if ui.small_button("Restore").clicked() {
+                            restore = Some(b.clone());
+                        }
+                    });
+                }
+            }
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(import)
+                        .hint_text("Or a backup file's full path...")
+                        .desired_width(300.0),
+                );
+                if ui.button("Import").clicked() && !import.trim().is_empty() {
+                    restore = Some(PathBuf::from(import.trim()));
+                }
+            });
+        });
+        if backup_now {
+            self.settings_ui.backup_message =
+                match super::backup::write_backup(&self.settings, false) {
+                    Ok(p) => format!("Backed up to {}", p.display()),
+                    Err(e) => format!("Backup failed: {e}"),
+                };
+        }
+        if let Some(path) = restore {
+            let result = std::fs::read_to_string(&path)
+                .map_err(|e| format!("{}: {e}", path.display()))
+                .and_then(|text| super::backup::from_backup(&self.settings, &text));
+            self.settings_ui.backup_message = match result {
+                Ok(restored) => {
+                    let _ = super::backup::write_backup(&self.settings, false);
+                    self.settings = restored;
+                    self.settings_ui.backup_import.clear();
+                    "Restored. The settings from before are in a new backup.".to_string()
+                }
+                Err(e) => format!("Not restored: {e}"),
+            };
         }
         let shown = &mut self.settings_ui.shown_licenses;
         about_box(ui, "Open source software used...", |ui| {

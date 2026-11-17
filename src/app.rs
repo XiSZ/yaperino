@@ -5,6 +5,8 @@ use crate::chat::{self, ChatLine, Cmd, Event};
 use crate::emotes::{self, Store};
 use crate::platforms::{self, Links, Platform};
 
+#[path = "backup.rs"]
+mod backup;
 #[path = "chat_main.rs"]
 mod chat_main;
 #[path = "features.rs"]
@@ -165,6 +167,8 @@ pub struct Settings {
     pub filters_skip_own: bool,
     /// Moderation > Logs: chat logs as text files per channel and day.
     pub logging: bool,
+    /// Settings Manager: a backup of the settings once a day (the last 10 are kept).
+    pub auto_backup: bool,
     pub log_dir: String,
     pub log_seconds: bool,
     pub log_only_listed: bool,
@@ -308,6 +312,7 @@ impl Default for Settings {
             split_filters: HashMap::new(),
             filters_skip_own: true,
             logging: false,
+            auto_backup: true,
             log_dir: String::new(),
             log_seconds: true,
             log_only_listed: false,
@@ -648,6 +653,8 @@ pub struct LiveApp {
     matching: usize,
     /// The appearance last applied (applied again when Settings change it).
     applied_look: Option<crate::style::Appearance>,
+    /// The daily settings backup was looked at (once per start).
+    backup_checked: bool,
     /// Whether the Windows frame was last switched off (own title bar).
     applied_frame: Option<bool>,
     /// The chatters list (Chatterino's viewer list): the split it is for, and its search.
@@ -819,6 +826,7 @@ impl LiveApp {
             match_queued: HashSet::new(),
             matching: 0,
             applied_look: None,
+            backup_checked: false,
             applied_frame: None,
             chatters: None,
             plugins: Default::default(),
@@ -3839,6 +3847,13 @@ impl eframe::App for LiveApp {
         }
         if own_bar {
             resize_edges(&ctx);
+        }
+        // Settings Manager: the daily automatic backup (once per start)
+        if !self.backup_checked {
+            self.backup_checked = true;
+            if self.settings.auto_backup && !self.demo && self.shot.is_none() {
+                backup::auto_backup(&self.settings);
+            }
         }
         // Settings > Customization: theme, accent, font, zoom
         if self.applied_look.as_ref() != Some(&self.settings.appearance) {

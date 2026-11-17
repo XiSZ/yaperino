@@ -109,6 +109,9 @@ Sign in to Twitch again after updating to grant the permissions.
 - Dark, Black, Light and White themes, accent colour, font and zoom.
 - **Streamlink** for Twitch, Kick, YouTube and TikTok.
 - **Lua plugins** in Chatterino's style (a subset of its `c2` API).
+- **Settings backup** (Settings > About): back up now, restore, and a daily automatic
+  backup. Backups never hold sign-ins.
+- **Close to the tray** (Windows, Settings > General): closing hides Yaperino by the clock.
 
 ## Download and install
 
