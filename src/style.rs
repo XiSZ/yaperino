@@ -755,6 +755,7 @@ pub fn chat_lines(
                             format!("{} {}", name.to_lowercase(), text.to_lowercase())
                         }
                         ChatLine::System(t) => t.to_lowercase(),
+                        ChatLine::AutoMod(h) => h.summary().to_lowercase(),
                     };
                     if !hay.contains(q.as_str()) {
                         continue;
@@ -948,6 +949,7 @@ pub fn chat_lines(
                             text.clone(),
                         ),
                         ChatLine::System(t) => (t.clone(), None, t.clone()),
+                        ChatLine::AutoMod(h) => (h.summary(), Some(h.user.clone()), h.text.clone()),
                     };
                     // Twitch replies (Chatterino's message menu > Reply)
                     if let ChatLine::Msg {
@@ -975,6 +977,42 @@ pub fn chat_lines(
                     if matches!(line, ChatLine::Msg { .. }) && ui.button("Translate").clicked() {
                         insert = Some(LineAction::Translate(line.clone()));
                         ui.close();
+                    }
+                    // pin it at the top of the chat (where you moderate; Twitch's pins)
+                    if let ChatLine::Msg {
+                        name,
+                        msg_id,
+                        user_id,
+                        platform: crate::platforms::Platform::Twitch,
+                        ..
+                    } = line
+                    {
+                        if look.moderation && !msg_id.is_empty() {
+                            ui.menu_button("Pin message", |ui| {
+                                let lengths = [
+                                    ("Until the stream ends", None),
+                                    ("1 minute", Some(60)),
+                                    ("5 minutes", Some(300)),
+                                    ("10 minutes", Some(600)),
+                                    ("30 minutes", Some(1800)),
+                                ];
+                                for (label, secs) in lengths {
+                                    if ui.button(label).clicked() {
+                                        insert = Some(LineAction::Moderate(
+                                            crate::moderation::ModAction {
+                                                user: name.clone(),
+                                                user_id: user_id.clone(),
+                                                kind: crate::moderation::ModKind::Pin {
+                                                    msg_id: msg_id.clone(),
+                                                    secs,
+                                                },
+                                            },
+                                        ));
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        }
                     }
                     if ui.button("Copy message").clicked() {
                         ui.ctx().copy_text(body);
@@ -1310,6 +1348,81 @@ fn draw_line(
         }
         ChatLine::System(t) => {
             ui.label(RichText::new(t).font(font.clone()).color(theme::c().system));
+        }
+        // AutoMod held a message (Chatterino's AutoMod line): who, why, the message, and
+        // Allow / Deny, clicked through the line's area like the moderation buttons
+        ChatLine::AutoMod(h) => {
+            let dim = Color32::from_rgb(130, 130, 130);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                if look.timestamps {
+                    ui.label(
+                        RichText::new(format!("{} ", h.time))
+                            .font(font.clone())
+                            .color(dim),
+                    );
+                }
+                ui.label(
+                    RichText::new("AutoMod ")
+                        .font(font.clone())
+                        .strong()
+                        .color(Color32::from_rgb(0x8f, 0x8f, 0xff)),
+                );
+                ui.label(
+                    RichText::new(format!("held a message from {} ({})", h.user, h.reason))
+                        .font(font.clone())
+                        .color(theme::c().system),
+                );
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                ui.label(
+                    RichText::new(format!("{}: {}", h.user, h.text))
+                        .font(font.clone())
+                        .color(text_color),
+                );
+                if h.status.is_empty() {
+                    let buttons = [
+                        ("Allow", true, Color32::from_rgb(0x4c, 0xc2, 0x6b)),
+                        ("Deny", false, Color32::from_rgb(0xe8, 0x48, 0x48)),
+                    ];
+                    for (label, allow, col) in buttons {
+                        let r = ui.add(
+                            egui::Label::new(
+                                RichText::new(format!(" {label} "))
+                                    .font(font.clone())
+                                    .strong()
+                                    .color(col)
+                                    .background_color(col.gamma_multiply(0.18)),
+                            )
+                            .sense(Sense::hover()),
+                        );
+                        mod_hits.push((
+                            r.rect,
+                            crate::moderation::ModAction {
+                                user: h.user.clone(),
+                                user_id: h.user_id.clone(),
+                                kind: crate::moderation::ModKind::AutoMod {
+                                    msg_id: h.msg_id.clone(),
+                                    allow,
+                                },
+                            },
+                        ));
+                        r.on_hover_text(if allow {
+                            "Allow: the message is posted in the chat"
+                        } else {
+                            "Deny: nobody sees the message"
+                        });
+                    }
+                } else {
+                    ui.label(
+                        RichText::new(&h.status)
+                            .font(font.clone())
+                            .italics()
+                            .color(dim),
+                    );
+                }
+            });
         }
     }
 }

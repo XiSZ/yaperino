@@ -36,7 +36,7 @@ the sample data only (never real channels or accounts). See PUBLISHING.md > The 
 
 ```
 cargo build                 # target\debug\live-streams.exe (the binary keeps this old name)
-cargo test                  # 55 unit tests; 11 network tests are #[ignore]
+cargo test                  # 61 unit tests; 11 network tests are #[ignore]
 cargo build --release       # what a release ships, renamed Yaperino.exe
 cargo fmt                   # rustfmt's default style; CI fails on `cargo fmt --check`
 ```
@@ -73,6 +73,8 @@ and exits. It never loads sign-ins, never saves settings and never touches the n
 | `LIVE_STREAMS_SHOT_REPLY=1` / `_THREAD=1` | a sample reply and the "Replying to" bar / the reply thread window |
 | `LIVE_STREAMS_SHOT_SEARCH=<text>` | the search across all chats (Ctrl+Shift+F) with that text |
 | `LIVE_STREAMS_SHOT_GROUPS=1` | with `_MANY_TABS`: two tab groups, "FPS" collapsed |
+| `LIVE_STREAMS_SHOT_AUTOMOD=1` | with `_MOD=1`: two held AutoMod messages (one waiting, one denied) and a pinned message bar |
+| `LIVE_STREAMS_SHOT_UNBAN=1` / `_MODLOGS=1` | the unban requests window / the mod log window, with sample data |
 | `LIVE_STREAMS_SHOT_CAROUSEL=<text>` | that text typed in the first chat (e.g. `:ca` for the emote carousel; with `LIVE_STREAMS_REAL=1` for real emotes) |
 | `LIVE_STREAMS_SHOT_MANY_TABS=1` | 21 sample tabs: more than fit, to check wrapping (top/bottom) and scrolling (left/right) |
 | `LIVE_STREAMS_SHOT_EMOTES / _OPEN / _MULTI / _PLATFORMS / _COMPLETE` | emote window / open-channel dialog / multi-select / platforms / completion |
@@ -95,7 +97,10 @@ Network tests: `LIVE_STREAMS_TEST_LOGIN` (Chatterino login-info format), then
 | `platforms.rs`, `fetch.rs`, `model.rs` | live status of channels on all platforms, the live list's data |
 | `account.rs` | Twitch device sign-in, `SCOPES`, `Account` (`missing_scopes`, `has_scope`) |
 | `kick_auth.rs`, `youtube_auth.rs`, `weblogin.rs` | Kick / YouTube sign-in (web login window via wry) |
-| `moderation.rs` | Helix moderation: timeout/ban/unban/delete + `ModCommand` (`parse_command`, `required_scope`, `run_command`, `HELP`) |
+| `moderation.rs` | Helix moderation: timeout/ban/unban/delete, AutoMod allow/deny, pin/unpin (`ModKind`), `get_pin`, unban requests (`unban_requests`, `resolve_unban`) + `ModCommand` (`parse_command`, `required_scope`, `run_command`, `HELP`) |
+| `eventsub.rs` | Twitch EventSub WebSocket for moderated channels: automod.message.hold/update v2, channel.unban_request.create/resolve, channel.moderate v2 (`EventSub`, `EsCmd`, `EsEvent`, `parse_notification`); subscribes per kind only with its scopes |
+| `modlog.rs` | the mod log: `Entry` (`describe`), `from_moderate`, saved per channel in `ModLogs/<channel>.jsonl` (last 5,000) |
+| `modtools.rs` (child of app) | the mod tools' app side: `sync_mod_tools` (EventSub channels, pins every minute), `on_eventsub`, the unban requests and mod log windows, `pin_bar` |
 | `rules.rs` | regex highlights, ignores, the filter language (`parse_filter`, `eval`) |
 | `hotkeys.rs` | `ACTIONS` (27, Chatterino defaults + Ctrl+J/Ctrl+L), parse/format, `pressed` |
 | `plugins.rs` | Lua 5.4 plugins (`c2` API subset, permissions, sandbox) |

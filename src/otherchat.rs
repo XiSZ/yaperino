@@ -572,6 +572,7 @@ mod tests {
                         yt_ok |= t.starts_with("Joined YouTube");
                     }
                     ChatLine::Msg { platform, .. } => println!("{platform:?} message"),
+                    ChatLine::AutoMod(_) => {}
                 }
             }
         }

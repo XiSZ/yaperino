@@ -11,6 +11,8 @@ mod backup;
 mod chat_main;
 #[path = "features.rs"]
 mod features;
+#[path = "modtools.rs"]
+mod modtools;
 #[path = "search.rs"]
 mod search;
 #[path = "settings_ui.rs"]
@@ -607,6 +609,18 @@ pub struct LiveApp {
     thread: Option<(String, String)>,
     /// Search across all chats (Ctrl+Shift+F), when open.
     global_search: Option<search::GlobalSearch>,
+    /// Mod tools on Twitch's official data (modtools.rs): the EventSub connection, its
+    /// sign-in and watched channels, the channels already told to sign in again, each
+    /// channel's mod log, pinned message (and when it was asked), and the open windows.
+    eventsub: Option<crate::eventsub::EventSub>,
+    es_auth: Option<crate::eventsub::EsAuth>,
+    es_watched: HashSet<String>,
+    es_noticed: HashSet<String>,
+    modlogs: HashMap<String, Vec<crate::modlog::Entry>>,
+    pins: HashMap<String, (Option<crate::moderation::Pin>, Instant)>,
+    pins_asked: HashSet<String>,
+    unban_win: Option<modtools::UnbanWindow>,
+    modlog_win: Option<modtools::ModLogWindow>,
     /// Hide to tray: the main window's handle and the tray icon (once used).
     hwnd: Option<isize>,
     tray: Option<crate::tray::Tray>,
@@ -753,6 +767,12 @@ enum SideMsg {
     KickEmotes(String, Vec<(String, Vec<emotes::Emote>)>),
     /// A message translation came back (or failed).
     Translated(translate::Request, Result<translate::Translation, String>),
+    /// Mod tools: an EventSub event; a channel's pinned message; its pending unban requests;
+    /// an unban request approved / denied: (channel, request id, new status, result).
+    EventSub(crate::eventsub::EsEvent),
+    Pin(String, Option<crate::moderation::Pin>),
+    UnbanList(String, Result<Vec<crate::moderation::UnbanRequest>, String>),
+    UnbanDone(String, String, String, Result<(), String>),
 }
 
 /// Emote and badge loads finishing in the background.
@@ -808,6 +828,15 @@ impl LiveApp {
             usercard: None,
             thread: None,
             global_search: None,
+            eventsub: None,
+            es_auth: None,
+            es_watched: HashSet::new(),
+            es_noticed: HashSet::new(),
+            modlogs: HashMap::new(),
+            pins: HashMap::new(),
+            pins_asked: HashSet::new(),
+            unban_win: None,
+            modlog_win: None,
             hwnd: None,
             tray: None,
             account: None,
@@ -1404,6 +1433,7 @@ impl LiveApp {
             events.push(e);
         }
         self.poll_side();
+        self.sync_mod_tools();
         self.pump_name_matches();
         for e in events {
             match e {
@@ -2200,6 +2230,13 @@ impl LiveApp {
                     self.emotes.kick_sets.insert(g, sets);
                 }
                 SideMsg::Translated(req, r) => self.translation_done(req, r),
+                SideMsg::EventSub(e) => self.on_eventsub(e),
+                SideMsg::Pin(ch, pin) => {
+                    self.pins_asked.remove(&ch);
+                    self.pins.insert(ch, (pin, Instant::now()));
+                }
+                SideMsg::UnbanList(ch, r) => self.unban_list_loaded(&ch, r),
+                SideMsg::UnbanDone(ch, id, status, r) => self.unban_done(&ch, &id, &status, r),
                 SideMsg::YouTubeSignedIn(r) => {
                     self.settings_ui.yt_busy = false;
                     match r {

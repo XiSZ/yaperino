@@ -170,6 +170,11 @@ impl LiveApp {
                 .as_ref()
                 .is_some_and(|c| self.mod_in.contains(c))
             || (self.shot.is_some() && std::env::var("LIVE_STREAMS_SHOT_MOD").is_ok());
+        // what moderators did to them here (the mod log Yaperino keeps)
+        let mod_log = match (card.channel.clone(), moderates) {
+            (Some(c), true) => self.mod_log_about(&c, &card.name),
+            _ => Vec::new(),
+        };
         let timeouts: Vec<(String, u64)> = self
             .settings
             .timeout_buttons
@@ -495,6 +500,42 @@ impl LiveApp {
                                         )));
                                     }
                                 });
+                            });
+                    }
+                    if !mod_log.is_empty() {
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("MOD LOG")
+                                    .small()
+                                    .strong()
+                                    .color(p.tab_text),
+                            );
+                            pill(ui, &mod_log.len().to_string(), p.shade(30), p.text);
+                        });
+                        egui::Frame::new()
+                            .fill(p.shade(10))
+                            .corner_radius(10)
+                            .inner_margin(egui::Margin::symmetric(10, 8))
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                for e in &mod_log {
+                                    let when = chrono::DateTime::from_timestamp(e.time, 0)
+                                        .map(|t| {
+                                            t.with_timezone(&chrono::Local)
+                                                .format("%b %-d, %Y %H:%M")
+                                                .to_string()
+                                        })
+                                        .unwrap_or_default();
+                                    ui.horizontal_wrapped(|ui| {
+                                        ui.label(
+                                            egui::RichText::new(when)
+                                                .small()
+                                                .color(p.tab_text),
+                                        );
+                                        ui.label(egui::RichText::new(e.describe()).small());
+                                    });
+                                }
                             });
                     }
                     // their messages

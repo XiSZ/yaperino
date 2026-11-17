@@ -255,7 +255,7 @@ pub fn line_key(line: &ChatLine) -> Option<String> {
         } else {
             msg_id.clone()
         }),
-        ChatLine::System(_) => None,
+        ChatLine::System(_) | ChatLine::AutoMod(_) => None,
     }
 }
 

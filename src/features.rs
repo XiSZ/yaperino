@@ -556,6 +556,7 @@ impl LiveApp {
                 }
             }
             ChatLine::System(t) => format!("[{stamp}] {t}"),
+            ChatLine::AutoMod(h) => format!("[{stamp}] {}", h.summary()),
         };
         let name = safe_name(channel);
         let folder = dir.join(&name);
@@ -640,11 +641,22 @@ impl LiveApp {
         };
         let (tx, ctx, g) = (self.side_tx.clone(), self.ctx.clone(), group.to_string());
         std::thread::spawn(move || {
-            let text = match crate::moderation::run(&auth, &room, &m) {
+            let result = crate::moderation::run(&auth, &room, &m);
+            let text = match &result {
                 Ok(()) => format!("You {}.", m.describe()),
                 Err(e) => format!("Moderation failed: {e}"),
             };
             let _ = tx.send(SideMsg::Line(g, ChatLine::System(text)));
+            // a pin changed: show the new one right away
+            if result.is_ok()
+                && matches!(
+                    m.kind,
+                    crate::moderation::ModKind::Pin { .. } | crate::moderation::ModKind::Unpin(_)
+                )
+            {
+                let pin = crate::moderation::get_pin(&auth, &room).ok().flatten();
+                let _ = tx.send(SideMsg::Pin(channel, pin));
+            }
             ctx.request_repaint();
         });
     }

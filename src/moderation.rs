@@ -17,6 +17,18 @@ pub enum ModKind {
     Unban,
     /// Delete one message (its id).
     Delete(String),
+    /// Allow or deny a message AutoMod held (its id).
+    AutoMod {
+        msg_id: String,
+        allow: bool,
+    },
+    /// Pin a message (its id) for some seconds (30 to 1800), or None: until the stream ends.
+    Pin {
+        msg_id: String,
+        secs: Option<u64>,
+    },
+    /// Unpin the pinned message (its id).
+    Unpin(String),
 }
 
 /// One moderation action from a message.
@@ -34,11 +46,142 @@ impl ModAction {
             ModKind::Ban => format!("banned {}", self.user),
             ModKind::Unban => format!("unbanned {}", self.user),
             ModKind::Delete(_) => format!("deleted a message of {}", self.user),
+            ModKind::AutoMod { allow: true, .. } => {
+                format!("allowed the held message of {}", self.user)
+            }
+            ModKind::AutoMod { allow: false, .. } => {
+                format!("denied the held message of {}", self.user)
+            }
+            ModKind::Pin { secs: Some(s), .. } => {
+                format!(
+                    "pinned a message of {} for {}",
+                    self.user,
+                    duration_text(*s)
+                )
+            }
+            ModKind::Pin { secs: None, .. } => {
+                format!("pinned a message of {} until the stream ends", self.user)
+            }
+            ModKind::Unpin(_) => "unpinned the pinned message".into(),
         }
     }
 }
 
+/// A channel's pinned message (Twitch's Get Pinned Chat Message).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Pin {
+    pub message_id: String,
+    pub sender: String,
+    pub text: String,
+    pub pinned_by: String,
+    /// When it ends (RFC 3339), empty: when the stream ends.
+    pub ends_at: String,
+}
+
+/// The pinned message from Twitch's answer, if any.
+pub fn parse_pin(body: &str) -> Option<Pin> {
+    let v: Value = serde_json::from_str(body).ok()?;
+    let p = &v["data"][0];
+    let s = |x: &Value| x.as_str().unwrap_or_default().to_string();
+    let id = p["message_id"].as_str()?;
+    Some(Pin {
+        message_id: id.to_string(),
+        sender: s(&p["sender_user_name"]),
+        text: s(&p["message"]["text"]),
+        pinned_by: s(&p["pinned_by_user_name"]),
+        ends_at: s(&p["ends_at"]),
+    })
+}
+
+/// The channel's pinned message (moderators only).
+pub fn get_pin(auth: &ModAuth, broadcaster_id: &str) -> Result<Option<Pin>, String> {
+    let body = ok_or_explain(helix(
+        auth,
+        "GET",
+        &format!(
+            "chat/pins?broadcaster_id={broadcaster_id}&moderator_id={}",
+            auth.user_id
+        ),
+        None,
+    )?)?;
+    Ok(parse_pin(&body))
+}
+
+/// An unban request (Twitch's Get Unban Requests, or EventSub).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnbanRequest {
+    pub id: String,
+    pub user_id: String,
+    pub user_login: String,
+    pub user_name: String,
+    pub text: String,
+    pub created_at: String,
+    /// pending, approved, denied, acknowledged, canceled
+    pub status: String,
+    pub moderator: String,
+    pub resolution: String,
+}
+
+pub fn parse_unban_requests(body: &str) -> Vec<UnbanRequest> {
+    let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let s = |x: &Value| x.as_str().unwrap_or_default().to_string();
+    v["data"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .map(|r| UnbanRequest {
+                    id: s(&r["id"]),
+                    user_id: s(&r["user_id"]),
+                    user_login: s(&r["user_login"]),
+                    user_name: s(&r["user_name"]),
+                    text: s(&r["text"]),
+                    created_at: s(&r["created_at"]),
+                    status: s(&r["status"]),
+                    moderator: s(&r["moderator_name"]),
+                    resolution: s(&r["resolution_text"]),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A channel's pending unban requests (up to 100).
+pub fn unban_requests(auth: &ModAuth, broadcaster_id: &str) -> Result<Vec<UnbanRequest>, String> {
+    let body = ok_or_explain(helix(
+        auth,
+        "GET",
+        &format!(
+            "moderation/unban_requests?broadcaster_id={broadcaster_id}&moderator_id={}&status=pending&first=100",
+            auth.user_id
+        ),
+        None,
+    )?)?;
+    Ok(parse_unban_requests(&body))
+}
+
+/// Approves or denies an unban request, with an optional note to the user.
+pub fn resolve_unban(
+    auth: &ModAuth,
+    broadcaster_id: &str,
+    request_id: &str,
+    approve: bool,
+    note: &str,
+) -> Result<(), String> {
+    let mut path = format!(
+        "moderation/unban_requests?broadcaster_id={broadcaster_id}&moderator_id={}&unban_request_id={}&status={}",
+        auth.user_id,
+        urlencode(request_id),
+        if approve { "approved" } else { "denied" }
+    );
+    let note: String = note.trim().chars().take(500).collect();
+    if !note.is_empty() {
+        path.push_str(&format!("&resolution_text={}", urlencode(&note)));
+    }
+    ok_or_explain(helix(auth, "PATCH", &path, None)?).map(|_| ())
+}
+
 /// The sign-in to act with.
+#[derive(Clone)]
 pub struct ModAuth {
     pub client_id: String,
     pub token: String,
@@ -152,6 +295,30 @@ pub fn run(auth: &ModAuth, broadcaster_id: &str, action: &ModAction) -> Result<(
                 r.body_mut().read_to_string().unwrap_or_default(),
             )
         }
+        // the moderator's own id goes in user_id (Manage Held AutoMod Messages)
+        ModKind::AutoMod { msg_id, allow } => helix(
+            auth,
+            "POST",
+            "moderation/automod/message",
+            Some(serde_json::json!({
+                "user_id": auth.user_id,
+                "msg_id": msg_id,
+                "action": if *allow { "ALLOW" } else { "DENY" },
+            })),
+        )?,
+        ModKind::Pin { msg_id, secs } => {
+            let mut path = format!("chat/pins?{q}&message_id={}", urlencode(msg_id));
+            if let Some(s) = secs {
+                path.push_str(&format!("&duration_seconds={}", s.clamp(&30, &1800)));
+            }
+            helix(auth, "PUT", &path, None)?
+        }
+        ModKind::Unpin(msg_id) => helix(
+            auth,
+            "DELETE",
+            &format!("chat/pins?{q}&message_id={}", urlencode(msg_id)),
+            None,
+        )?,
     };
     if (200..300).contains(&status) {
         Ok(())
@@ -223,7 +390,7 @@ pub enum ModCommand {
 }
 
 /// The text of /modhelp.
-pub const HELP: &str = "Mod commands: /timeout <user> [10m] [reason], /ban <user> [reason], /unban <user>, /warn <user> <reason>, /clear, /slow [30] | /slowoff, /followers [10m] | /followersoff, /emoteonly | /emoteonlyoff, /subscribers | /subscribersoff, /uniquechat | /uniquechatoff, /shield | /shieldoff, /announce[blue|green|orange|purple] <text>, /shoutout <user>, /blockterm <text>, /unblockterm <text>. Broadcaster: /mod, /unmod, /vip, /unvip <user>, /raid <channel>, /unraid, /commercial [30], /settitle <title>, /setgame <game>, /marker [text], /poll <title> | <choice> | <choice> [| 60s], /endpoll, /archivepoll, /prediction <title> | <outcome> | <outcome> [| 2m], /lockprediction, /cancelprediction, /completeprediction <outcome number>.";
+pub const HELP: &str = "Mod commands: /timeout <user> [10m] [reason], /ban <user> [reason], /unban <user>, /warn <user> <reason>, /clear, /slow [30] | /slowoff, /followers [10m] | /followersoff, /emoteonly | /emoteonlyoff, /subscribers | /subscribersoff, /uniquechat | /uniquechatoff, /shield | /shieldoff, /announce[blue|green|orange|purple] <text>, /shoutout <user>, /blockterm <text>, /unblockterm <text>, /modlogs [user], /unbanrequests (right-click a message to pin it). Broadcaster: /mod, /unmod, /vip, /unvip <user>, /raid <channel>, /unraid, /commercial [30], /settitle <title>, /setgame <game>, /marker [text], /poll <title> | <choice> | <choice> [| 60s], /endpoll, /archivepoll, /prediction <title> | <outcome> | <outcome> [| 2m], /lockprediction, /cancelprediction, /completeprediction <outcome number>.";
 
 /// A typed command: None = not a mod command; Some(Err) = how to use it.
 pub fn parse_command(text: &str) -> Option<Result<ModCommand, String>> {
@@ -421,7 +588,7 @@ pub fn required_scope(c: &ModCommand) -> &'static str {
 }
 
 /// One Helix call: (status, body).
-fn helix(
+pub(crate) fn helix(
     auth: &ModAuth,
     method: &str,
     path: &str,
@@ -960,5 +1127,64 @@ mod tests {
         assert_eq!(parse_duration("x"), None);
         assert_eq!(duration_text(600), "10m");
         assert_eq!(duration_text(90), "90s");
+    }
+
+    #[test]
+    fn pinned_message_and_unban_requests_are_read() {
+        // shapes from Twitch's Get Pinned Chat Message / Get Unban Requests examples
+        let pins = r#"{"data":[{"message_id":"abc-def-123-456","broadcaster_id":"197886470",
+            "sender_user_id":"1","sender_user_login":"viewer","sender_user_name":"Viewer",
+            "pinned_by_user_id":"2","pinned_by_user_login":"mod","pinned_by_user_name":"Mod",
+            "message":{"text":"Welcome! bleedPurple Type !rules","fragments":[]},
+            "starts_at":"2026-05-06T12:30:00Z","ends_at":null,"updated_at":"2026-05-06T12:30:00Z"}]}"#;
+        assert_eq!(
+            parse_pin(pins),
+            Some(Pin {
+                message_id: "abc-def-123-456".into(),
+                sender: "Viewer".into(),
+                text: "Welcome! bleedPurple Type !rules".into(),
+                pinned_by: "Mod".into(),
+                ends_at: String::new(),
+            })
+        );
+        assert_eq!(parse_pin(r#"{"data":[]}"#), None);
+        let unbans = r#"{"data":[{"id":"92af127c-7326-4483-a52b-b0da0be61c01",
+            "broadcaster_name":"Simon","broadcaster_login":"simon","broadcaster_id":"274637212",
+            "moderator_id":null,"moderator_login":null,"moderator_name":null,
+            "user_id":"424596340","user_login":"quotrok","user_name":"quotrok",
+            "text":"Please unban me from the channel?","status":"pending",
+            "created_at":"2022-08-07T02:07:55Z","resolved_at":null,"resolution_text":null}],
+            "pagination":{"cursor":"x"}}"#;
+        let list = parse_unban_requests(unbans);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "92af127c-7326-4483-a52b-b0da0be61c01");
+        assert_eq!(list[0].user_name, "quotrok");
+        assert_eq!(list[0].text, "Please unban me from the channel?");
+        assert_eq!(
+            (list[0].status.as_str(), list[0].moderator.as_str()),
+            ("pending", "")
+        );
+        // what clicking Allow / Pin says in the chat
+        let m = |kind| ModAction {
+            user: "Viewer".into(),
+            user_id: "1".into(),
+            kind,
+        };
+        assert_eq!(
+            m(ModKind::AutoMod {
+                msg_id: "x".into(),
+                allow: true
+            })
+            .describe(),
+            "allowed the held message of Viewer"
+        );
+        assert_eq!(
+            m(ModKind::Pin {
+                msg_id: "x".into(),
+                secs: Some(300)
+            })
+            .describe(),
+            "pinned a message of Viewer for 5m"
+        );
     }
 }

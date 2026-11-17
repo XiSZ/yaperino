@@ -101,6 +101,18 @@ For your own channel also /mod, /vip, /raid, /commercial, /settitle, /setgame, /
 polls and predictions. /modhelp lists them, and the split menu has a Moderation submenu.
 In channels you moderate, the **sword** in the split header turns on mod buttons in front of
 every message, and the usercard has timeout, ban and unban buttons.
+
+Also in channels you moderate (official Twitch API, live through EventSub):
+
+- **AutoMod**: messages AutoMod holds show up in the chat with **Allow** and **Deny**.
+- **Unban requests** (/unbanrequests, or split menu > Moderation): approve or deny them,
+  with an optional note; new ones are announced in the chat.
+- **Mod log** (/modlogs [user]): every ban, timeout, deletion, warning and mode change,
+  searchable, and in the usercard for that user. Yaperino records it while it runs (Twitch
+  doesn't share older actions) and keeps the last 5,000 per channel on your computer.
+- **Pins**: the pinned message shows above the chat; right-click a message > Pin message
+  (until the stream ends, or 1 to 30 minutes), and Unpin on the bar.
+
 Sign in to Twitch again after updating to grant the permissions.
 
 ### Sign-ins

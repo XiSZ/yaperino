@@ -617,6 +617,10 @@ impl LiveApp {
                     text.push_str(&format!("* {t}\n"));
                     json.push(serde_json::json!({ "system": t }));
                 }
+                ChatLine::AutoMod(h) => {
+                    text.push_str(&format!("[{}] * {}\n", h.time, h.summary()));
+                    json.push(serde_json::json!({ "time": h.time, "automod": h.summary() }));
+                }
             }
         }
         let base = dir.join(format!("{safe}-{stamp}"));
@@ -1384,6 +1388,8 @@ impl LiveApp {
         self.emote_menu_window(ui.ctx(), &mut act);
         self.chatters_window(ui.ctx());
         self.thread_window(ui.ctx(), &mut act);
+        self.unban_window(ui.ctx());
+        self.mod_log_window(ui.ctx());
         // a clicked match of the search across all chats: go there, its search set
         if let Some((key, query)) = self.global_search_window(ui.ctx()) {
             if let Some(i) = self.chat_index(&key) {
@@ -1869,6 +1875,24 @@ impl LiveApp {
             Some(_) => self.spell_known_words(idx),
             None => HashSet::new(),
         };
+        // the pinned message, where you moderate (Twitch's pins)
+        if let Some(pin) = self.pin_of(key).filter(|_| moderates_here) {
+            let r = egui::Rect::from_min_size(
+                egui::Pos2::new(full.left(), top),
+                Vec2::new(full.width(), 26.0),
+            );
+            if super::modtools::pin_bar(ui, r, &pin) {
+                act.moderate = Some((
+                    key.to_string(),
+                    crate::moderation::ModAction {
+                        user: pin.sender.clone(),
+                        user_id: String::new(),
+                        kind: crate::moderation::ModKind::Unpin(pin.message_id.clone()),
+                    },
+                ));
+            }
+            top = r.bottom();
+        }
         let tab = &mut self.chats[idx];
         if let Some(q) = tab.search.as_mut() {
             let r = egui::Rect::from_min_size(
@@ -2901,6 +2925,8 @@ impl LiveApp {
                     LocalCmd::Join(c) => act.open_channel = Some(c),
                     LocalCmd::Part => act.leave = Some(ch),
                     LocalCmd::Usage(u) => self.push_to(&ch, ChatLine::System(u)),
+                    LocalCmd::ModLogs(u) => self.open_mod_log(&ch, u.unwrap_or_default()),
+                    LocalCmd::UnbanRequests => self.open_unban_requests(&ch),
                 }
             }
         }
@@ -3673,6 +3699,17 @@ fn split_menu(ui: &mut egui::Ui, act: &mut MainActions, m: &SplitMenu) {
                 act.mod_help = Some(key.to_string());
                 ui.close();
             }
+            ui.separator();
+            // the two windows open like their commands (local, never sent)
+            for (label, cmd) in [
+                ("Unban requests...", "/unbanrequests"),
+                ("Mod log...", "/modlogs"),
+            ] {
+                if ui.button(label).clicked() {
+                    act.send = Some((key.to_string(), cmd.to_string(), Platform::Twitch));
+                    ui.close();
+                }
+            }
         });
     }
     if ui
@@ -3763,6 +3800,10 @@ enum LocalCmd {
     Part,
     /// How to use it (a command given without its user).
     Usage(String),
+    /// /modlogs [user]: the mod log, filtered by a user.
+    ModLogs(Option<String>),
+    /// /unbanrequests: the unban requests window.
+    UnbanRequests,
 }
 
 fn local_command(text: &str) -> Option<LocalCmd> {
@@ -3782,6 +3823,8 @@ fn local_command(text: &str) -> Option<LocalCmd> {
         ("/part" | "/leave", _) => LocalCmd::Part,
         ("/modhelp", _) => LocalCmd::Usage(crate::moderation::HELP.to_string()),
         ("/export", _) => LocalCmd::Export,
+        ("/modlogs" | "/modlog", u) => LocalCmd::ModLogs(u),
+        ("/unbanrequests" | "/unbans", _) => LocalCmd::UnbanRequests,
         _ => return None,
     })
 }
@@ -4031,6 +4074,15 @@ mod tab_move_tests {
         );
         assert!(matches!(local_command("/hide"), Some(LocalCmd::Usage(_))));
         assert_eq!(local_command("/chatters"), Some(LocalCmd::Chatters));
+        assert_eq!(local_command("/modlogs"), Some(LocalCmd::ModLogs(None)));
+        assert_eq!(
+            local_command("/modlogs @Someone"),
+            Some(LocalCmd::ModLogs(Some("Someone".into())))
+        );
+        assert_eq!(
+            local_command("/unbanrequests"),
+            Some(LocalCmd::UnbanRequests)
+        );
         assert_eq!(local_command("/export"), Some(LocalCmd::Export));
         assert_eq!(
             local_command("/join #SomeOne"),

@@ -42,6 +42,36 @@ pub enum ChatLine {
         reply: Option<Box<Reply>>,
     },
     System(String),
+    /// A message AutoMod held for moderators to allow or deny (Chatterino's AutoMod line).
+    AutoMod(Box<HeldMessage>),
+}
+
+/// A message AutoMod held (EventSub automod.message.hold).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HeldMessage {
+    pub time: String,
+    pub msg_id: String,
+    pub user_id: String,
+    pub user: String,
+    pub text: String,
+    /// Why: AutoMod's category and level, or the blocked term.
+    pub reason: String,
+    /// Empty while it waits; else "approved", "denied" or "expired" and by whom.
+    pub status: String,
+}
+
+impl HeldMessage {
+    /// One line of text (export, logs, search, copy).
+    pub fn summary(&self) -> String {
+        let mut s = format!(
+            "AutoMod held a message from {} ({}): {}",
+            self.user, self.reason, self.text
+        );
+        if !self.status.is_empty() {
+            s.push_str(&format!(" [{}]", self.status));
+        }
+        s
+    }
 }
 
 /// What a reply answers (Twitch's reply-parent-* and reply-thread-parent-* tags).
