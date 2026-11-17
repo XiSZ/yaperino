@@ -24,6 +24,8 @@ pub struct Entry {
     pub action: String,
     /// Who it was done to (login), if anyone.
     pub target: String,
+    /// Their Twitch user id (display names can differ from the login).
+    pub target_id: String,
     /// The reason, the deleted message, the duration, the terms ...
     pub detail: String,
 }
@@ -151,6 +153,7 @@ pub fn from_moderate(ev: &Value, time: i64) -> Option<Entry> {
             .unwrap_or_default()
             .to_string(),
         target: text("user_login"),
+        target_id: text("user_id"),
         action,
         detail,
     })
@@ -240,6 +243,11 @@ pub fn samples() -> Vec<Entry> {
         moderator: m.into(),
         action: a.into(),
         target: t.into(),
+        target_id: if t == "AnotherViewer" {
+            "12345".into()
+        } else {
+            String::new()
+        },
         detail: d.into(),
     };
     vec![
@@ -308,6 +316,7 @@ mod tests {
             moderator: "m".into(),
             action: "ban".into(),
             target: "t".into(),
+            target_id: "9".into(),
             detail: "d".into(),
         };
         let text = format!("{}\nnot json\n", serde_json::to_string(&a).unwrap());

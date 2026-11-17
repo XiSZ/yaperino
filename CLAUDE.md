@@ -36,7 +36,7 @@ the sample data only (never real channels or accounts). See PUBLISHING.md > The 
 
 ```
 cargo build                 # target\debug\live-streams.exe (the binary keeps this old name)
-cargo test                  # 61 unit tests; 11 network tests are #[ignore]
+cargo test                  # 62 unit tests; 12 network tests are #[ignore]
 cargo build --release       # what a release ships, renamed Yaperino.exe
 cargo fmt                   # rustfmt's default style; CI fails on `cargo fmt --check`
 ```

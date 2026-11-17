@@ -3329,6 +3329,10 @@ impl LiveApp {
     /// own words (as typed, so the spellcheck can look them up).
     fn spell_known_words(&self, idx: usize) -> HashSet<String> {
         let tab = &self.chats[idx];
+        // nothing typed: nothing to look up (this runs every frame for every split)
+        if tab.input.trim().is_empty() {
+            return HashSet::new();
+        }
         let own: HashSet<String> = self
             .settings
             .spell_words

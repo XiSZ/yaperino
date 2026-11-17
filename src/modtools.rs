@@ -378,14 +378,26 @@ impl LiveApp {
         });
     }
 
-    /// A user's mod log entries in a channel, newest first (for the usercard).
-    pub(super) fn mod_log_about(&mut self, channel: &str, user: &str) -> Vec<crate::modlog::Entry> {
+    /// A user's mod log entries in a channel, newest first (for the usercard): by their
+    /// Twitch id, or by name for entries without one.
+    pub(super) fn mod_log_about(
+        &mut self,
+        channel: &str,
+        user: &str,
+        user_id: &str,
+    ) -> Vec<crate::modlog::Entry> {
         self.modlogs
             .entry(channel.to_string())
             .or_insert_with(|| crate::modlog::load(channel))
             .iter()
             .rev()
-            .filter(|e| e.target.eq_ignore_ascii_case(user))
+            .filter(|e| {
+                if !user_id.is_empty() && !e.target_id.is_empty() {
+                    e.target_id == user_id
+                } else {
+                    e.target.eq_ignore_ascii_case(user)
+                }
+            })
             .take(20)
             .cloned()
             .collect()

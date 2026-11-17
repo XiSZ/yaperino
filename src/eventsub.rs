@@ -187,13 +187,8 @@ fn session(st: &mut State, rx: &Receiver<EsCmd>, emit: &impl Fn(EsEvent)) -> Res
         }
         match ws.read() {
             Ok(Message::Text(t)) => {
-                let v: Value = serde_json::from_str(&t).unwrap_or(Value::Null);
-                if v["metadata"]["message_type"] == "session_welcome" {
-                    let s = &v["payload"]["session"];
-                    break (
-                        s["id"].as_str().unwrap_or_default().to_string(),
-                        s["keepalive_timeout_seconds"].as_u64().unwrap_or(30),
-                    );
+                if let Some(w) = parse_welcome(&t) {
+                    break w;
                 }
             }
             Ok(Message::Close(_)) => return Err("closed".into()),
@@ -292,6 +287,20 @@ fn session(st: &mut State, rx: &Receiver<EsCmd>, emit: &impl Fn(EsEvent)) -> Res
             Err(e) => return Err(e.to_string()),
         }
     }
+}
+
+/// Twitch's welcome: (session id, keepalive seconds).
+fn parse_welcome(text: &str) -> Option<(String, u64)> {
+    let v: Value = serde_json::from_str(text).ok()?;
+    if v["metadata"]["message_type"] != "session_welcome" {
+        return None;
+    }
+    let s = &v["payload"]["session"];
+    let id = s["id"].as_str().filter(|id| !id.is_empty())?;
+    Some((
+        id.to_string(),
+        s["keepalive_timeout_seconds"].as_u64().unwrap_or(30),
+    ))
 }
 
 /// Subscribes a channel's kinds; tells the chat once when permissions are missing.
@@ -462,6 +471,38 @@ mod tests {
             "metadata": {"message_type": "notification", "message_timestamp": "2026-11-17T20:00:00Z", "subscription_type": kind},
             "payload": {"subscription": {"type": kind, "version": "2"}, "event": event}
         })
+    }
+
+    #[test]
+    fn the_welcome_gives_the_session() {
+        let w = r#"{"metadata":{"message_id":"96a3f3b5-5dec-4eed-908e-e11ee657416c","message_type":"session_welcome","message_timestamp":"2023-07-19T14:56:51.634234626Z"},"payload":{"session":{"id":"AQoQILE98gtqShGmLD7AM6yJThAB","status":"connected","connected_at":"2023-07-19T14:56:51.616329898Z","keepalive_timeout_seconds":10,"reconnect_url":null}}}"#;
+        assert_eq!(
+            parse_welcome(w),
+            Some(("AQoQILE98gtqShGmLD7AM6yJThAB".into(), 10))
+        );
+        assert_eq!(
+            parse_welcome(r#"{"metadata":{"message_type":"session_keepalive"}}"#),
+            None
+        );
+    }
+
+    /// Network: Twitch's EventSub server answers with a welcome (no sign-in needed for that;
+    /// nothing is subscribed). `cargo test -- --ignored`
+    #[test]
+    #[ignore]
+    fn twitch_eventsub_says_welcome() {
+        let (mut ws, _) = tungstenite::connect(URL).expect("connect");
+        // Twitch may ping first; the welcome is the first text message
+        let text = (0..10)
+            .find_map(|_| match ws.read().expect("read") {
+                Message::Text(t) => Some(t.to_string()),
+                _ => None,
+            })
+            .expect("a text message");
+        let (id, keepalive) = parse_welcome(&text).expect("a welcome");
+        assert!(!id.is_empty());
+        assert_eq!(keepalive, 30);
+        let _ = ws.close(None);
     }
 
     #[test]

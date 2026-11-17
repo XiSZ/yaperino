@@ -172,7 +172,7 @@ impl LiveApp {
             || (self.shot.is_some() && std::env::var("LIVE_STREAMS_SHOT_MOD").is_ok());
         // what moderators did to them here (the mod log Yaperino keeps)
         let mod_log = match (card.channel.clone(), moderates) {
-            (Some(c), true) => self.mod_log_about(&c, &card.name),
+            (Some(c), true) => self.mod_log_about(&c, &card.name, &card.user_id),
             _ => Vec::new(),
         };
         let timeouts: Vec<(String, u64)> = self
