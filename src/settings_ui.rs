@@ -1292,6 +1292,26 @@ impl LiveApp {
             &mut self.settings.emote_carousel,
             "Emote carousel: show emote suggestions as a row of pictures that slides with each Tab press",
         );
+        heading(ui, "Spellcheck", TEXT);
+        ui.checkbox(
+            &mut self.settings.spellcheck,
+            "Check spelling in the message box (English): misspelled words get a red line, right-click one for suggestions",
+        );
+        ui.weak("Emotes, names, @mentions, links and common chat words are left alone.");
+        if !self.settings.spell_words.is_empty() {
+            ui.label("Your own words (click one to remove it):");
+            let mut remove = None;
+            ui.horizontal_wrapped(|ui| {
+                for (i, w) in self.settings.spell_words.iter().enumerate() {
+                    if ui.small_button(format!("{w}  ✕")).clicked() {
+                        remove = Some(i);
+                    }
+                }
+            });
+            if let Some(i) = remove {
+                self.settings.spell_words.remove(i);
+            }
+        }
         heading(ui, "Message box", TEXT);
         ui.checkbox(&mut self.settings.input_counter, "Show the message length");
         heading(ui, "Split header", TEXT);
@@ -2529,7 +2549,7 @@ impl LiveApp {
 }
 
 /// Open-source software Yaperino is built with (name, home page, license).
-const OPEN_SOURCE: [(&str, &str, &str); 16] = [
+const OPEN_SOURCE: [(&str, &str, &str); 18] = [
     (
         "egui / eframe",
         "https://github.com/emilk/egui",
@@ -2609,6 +2629,16 @@ const OPEN_SOURCE: [(&str, &str, &str); 16] = [
         "Noto Emoji font (macOS, Linux)",
         "https://github.com/googlefonts/noto-emoji",
         "OFL-1.1",
+    ),
+    (
+        "spellbook (spellcheck)",
+        "https://github.com/helix-editor/spellbook",
+        "MPL-2.0",
+    ),
+    (
+        "English dictionary (SCOWL, via wooorm/dictionaries)",
+        "http://wordlist.aspell.net",
+        "MIT AND BSD (assets/dictionaries/en_US-LICENSE.txt)",
     ),
 ];
 

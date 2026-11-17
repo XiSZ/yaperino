@@ -68,7 +68,11 @@ Modelled on Chatty's "Live Streams" list.
 ### Chat
 
 - **Emotes** from Twitch, 7TV, BetterTTV, FrankerFaceZ and Kick, with an emote menu (Ctrl+E)
-  and Tab completion for emotes and user names.
+  and Tab completion for emotes and user names. The **emote carousel** shows the suggestions
+  as a row of pictures that slides with each Tab press.
+- **Spellcheck** (English) in the message box: misspelled words get a red line, right-click
+  one for suggestions or to add it to your own words. Emotes, names and chat words are left
+  alone.
 - **Highlights, ignores, nicknames and custom commands**, with regex support, like Chatterino.
 - **Filters** for splits (Chatterino's filter language, e.g. `message.emote_only`).
 - **Chat history**: opening a Twitch chat shows its recent messages (from

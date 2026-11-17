@@ -154,6 +154,9 @@ pub struct Settings {
     /// Moltorino's emote carousel: emote suggestions as a row of pictures that slides with
     /// each Tab press (instead of a list), also while Tab cycles through matches.
     pub emote_carousel: bool,
+    /// Spellcheck in the message box (English), and the own words added to it.
+    pub spellcheck: bool,
+    pub spell_words: Vec<String>,
     /// The message length counter and the live dot on tabs.
     pub input_counter: bool,
     pub tab_live_dot: bool,
@@ -306,6 +309,8 @@ impl Default for Settings {
             completion_popup: true,
             tab_completion: true,
             emote_carousel: true,
+            spellcheck: true,
+            spell_words: Vec::new(),
             input_counter: true,
             tab_live_dot: true,
             highlight_badges: Vec::new(),
@@ -382,6 +387,9 @@ struct ChatTab {
     ac_sel: usize,
     ac_dismissed: Option<String>,
     tab_cycle: Option<(Vec<(String, Option<String>)>, usize, String)>,
+    /// Spellcheck: the misspelled word right-clicked in the message box (where, the word,
+    /// suggestions).
+    spell_menu: Option<(std::ops::Range<usize>, String, Vec<String>)>,
     /// An image pasted into the message box, waiting for "Upload" (Image Uploader).
     pending_image: Option<Arc<egui::ColorImage>>,
     /// The message the next Twitch message answers (message menu > Reply).
@@ -1782,6 +1790,7 @@ impl LiveApp {
             ac_sel: 0,
             ac_dismissed: None,
             tab_cycle: None,
+            spell_menu: None,
             pending_image: None,
             reply_to: None,
         });

@@ -26,6 +26,7 @@ mod paths;
 mod platforms;
 mod plugins;
 mod rules;
+mod spell;
 mod streamlink;
 mod style;
 mod tiktokchat;

@@ -30,6 +30,8 @@ linux-login = ["webview", "dep:gtk"]
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "persistence", "clipboard", "links", "x11", "wayland"] }
 egui = "0.37"
 ureq = { version = "3", features = ["json"] }
+# Spellcheck in the message box (Hunspell dictionaries, pure Rust)
+spellbook = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }

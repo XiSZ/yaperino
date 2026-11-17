@@ -1853,6 +1853,17 @@ impl LiveApp {
 
         // ---- search bar (Ctrl+F)
         let mut top = header_rect.bottom();
+        // spellcheck: the dictionary (once loaded) and which words of the message are
+        // emotes, chatters or own words
+        let spell_dict = if self.settings.spellcheck {
+            crate::spell::dictionary()
+        } else {
+            None
+        };
+        let spell_known = match spell_dict {
+            Some(_) => self.spell_known_words(idx),
+            None => HashSet::new(),
+        };
         let tab = &mut self.chats[idx];
         if let Some(q) = tab.search.as_mut() {
             let r = egui::Rect::from_min_size(
@@ -2138,19 +2149,99 @@ impl LiveApp {
         let right_w = 78.0 + if counter.is_empty() { 0.0 } else { 34.0 };
         if can {
             let w = (row.available_width() - right_w).max(40.0);
-            let r = row.add(
-                egui::TextEdit::singleline(&mut tab.input)
-                    .id(input_id)
-                    .hint_text("Send message...")
-                    .frame(egui::Frame::NONE)
-                    .char_limit(chat::MAX_MESSAGE)
-                    // Tab / Shift+Tab are for completion: they never move the focus to the
-                    // buttons next to the box (a single line never gets a tab character)
-                    .lock_focus(true)
-                    .desired_width(w),
-            );
+            let known = |w: &str| spell_known.contains(w);
+            // misspelled words get a red line under them
+            let mut spell_layouter =
+                |ui: &egui::Ui, buf: &dyn egui::TextBuffer, wrap_width: f32| {
+                    let text = buf.as_str();
+                    let font = egui::FontSelection::default().resolve(ui.style());
+                    let color = ui
+                        .visuals()
+                        .override_text_color
+                        .unwrap_or_else(|| ui.visuals().widgets.inactive.text_color());
+                    let plain = egui::TextFormat::simple(font, color);
+                    let wrong = egui::TextFormat {
+                        underline: egui::Stroke::new(1.5, Color32::from_rgb(232, 72, 72)),
+                        ..plain.clone()
+                    };
+                    let mut job = egui::text::LayoutJob::default();
+                    job.wrap.max_width = wrap_width;
+                    let mut at = 0;
+                    if let Some(d) = spell_dict {
+                        for r in crate::spell::misspelled(d, text, &known) {
+                            job.append(&text[at..r.start], 0.0, plain.clone());
+                            job.append(&text[r.clone()], 0.0, wrong.clone());
+                            at = r.end;
+                        }
+                    }
+                    job.append(&text[at..], 0.0, plain);
+                    ui.fonts_mut(|f| f.layout_job(job))
+                };
+            let mut edit = egui::TextEdit::singleline(&mut tab.input)
+                .id(input_id)
+                .hint_text("Send message...")
+                .frame(egui::Frame::NONE)
+                .char_limit(chat::MAX_MESSAGE)
+                // Tab / Shift+Tab are for completion: they never move the focus to the
+                // buttons next to the box (a single line never gets a tab character)
+                .lock_focus(true)
+                .desired_width(w);
+            if spell_dict.is_some() {
+                edit = edit.layouter(&mut spell_layouter);
+            }
+            let out = edit.show(&mut row);
+            let r = out.response.clone();
             if r.gained_focus() || r.clicked() {
                 act.focus = Some(key.to_string());
+            }
+            // right-click on a misspelled word: suggestions and "Add to the dictionary"
+            if let (Some(d), true) = (spell_dict, r.secondary_clicked()) {
+                tab.spell_menu = None;
+                if let Some(p) = r.interact_pointer_pos() {
+                    let c = out.galley.cursor_from_pos(p - out.galley_pos);
+                    let byte = tab
+                        .input
+                        .char_indices()
+                        .nth(c.index.0)
+                        .map_or(tab.input.len(), |(b, _)| b);
+                    // the word being typed counts here too
+                    let finished = format!("{} ", tab.input);
+                    if let Some(at) = crate::spell::misspelled(d, &finished, &known)
+                        .into_iter()
+                        .find(|at| at.start <= byte && byte <= at.end)
+                    {
+                        let word = tab.input[at.clone()].to_string();
+                        let list = crate::spell::suggestions(d, &word);
+                        tab.spell_menu = Some((at, word, list));
+                    }
+                }
+            }
+            if let Some((at, word, list)) = tab.spell_menu.clone() {
+                r.context_menu(|ui| {
+                    if list.is_empty() {
+                        ui.weak("No suggestions");
+                    }
+                    for s in &list {
+                        if ui.button(s).clicked() {
+                            if tab.input.get(at.clone()) == Some(word.as_str()) {
+                                tab.input.replace_range(at.clone(), s);
+                            }
+                            tab.spell_menu = None;
+                            ui.close();
+                        }
+                    }
+                    ui.separator();
+                    if ui
+                        .button(format!("Add \"{word}\" to the dictionary"))
+                        .clicked()
+                    {
+                        if !self.settings.spell_words.contains(&word) {
+                            self.settings.spell_words.push(word.clone());
+                        }
+                        tab.spell_menu = None;
+                        ui.close();
+                    }
+                });
             }
             if r.has_focus() {
                 // Up/Down: previously sent messages (Chatterino)
@@ -3194,6 +3285,48 @@ fn set_cursor_end(ctx: &egui::Context, id: egui::Id, text: &str) {
 }
 
 impl LiveApp {
+    /// Spellcheck: the words of a chat's message that are emotes there, chatters' names or
+    /// own words (as typed, so the spellcheck can look them up).
+    fn spell_known_words(&self, idx: usize) -> HashSet<String> {
+        let tab = &self.chats[idx];
+        let own: HashSet<String> = self
+            .settings
+            .spell_words
+            .iter()
+            .map(|w| w.to_lowercase())
+            .collect();
+        let chatters: HashSet<String> = tab
+            .lines
+            .iter()
+            .filter_map(|l| match l {
+                ChatLine::Msg { name, .. } => Some(name.to_lowercase()),
+                _ => None,
+            })
+            .collect();
+        let channel = tab.twitch.clone().unwrap_or_else(|| tab.login.clone());
+        let set = self.emotes.channels.get(&channel);
+        let g = &self.emotes.global;
+        let mut known = HashSet::new();
+        for w in crate::spell::word_forms(&tab.input) {
+            let lw = w.to_lowercase();
+            let in_map = |m: &emotes::EmoteMap| m.contains_key(w);
+            let emote = set
+                .is_some_and(|s| in_map(&s.seventv) || in_map(&s.bttv) || in_map(&s.ffz))
+                || in_map(&g.seventv)
+                || in_map(&g.bttv)
+                || in_map(&g.ffz)
+                || self.emotes.user_twitch.iter().any(|(_, e)| e.name == w)
+                || self.emotes.kick_sets.get(&tab.login).is_some_and(|sets| {
+                    sets.iter()
+                        .any(|(_, list)| list.iter().any(|e| e.name == w))
+                });
+            if emote || own.contains(&lw) || chatters.contains(&lw) {
+                known.insert(w.to_string());
+            }
+        }
+        known
+    }
+
     /// Emotes for completion: the account's Twitch emotes, the channel's 7TV / BTTV / FFZ
     /// and Kick emotes, then the global ones; names starting with the text first.
     fn complete_emotes(&self, idx: usize, q: &str, max: usize) -> Vec<Completion> {

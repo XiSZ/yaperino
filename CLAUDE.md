@@ -99,6 +99,7 @@ Network tests: `LIVE_STREAMS_TEST_LOGIN` (Chatterino login-info format), then
 | `hotkeys.rs` | `ACTIONS` (27, Chatterino defaults + Ctrl+J/Ctrl+L), parse/format, `pressed` |
 | `plugins.rs` | Lua 5.4 plugins (`c2` API subset, permissions, sandbox) |
 | `emotes.rs` | Twitch / 7TV / BTTV / FFZ / Kick emotes and badges |
+| `spell.rs` | spellcheck of the message box: the built-in English Hunspell dictionary (`assets/dictionaries`, loaded in the background), `misspelled` (what chat leaves alone), `suggestions` |
 | `paths.rs` | Yaperino's folders on each system (`app_dir`, `local_dir`) |
 | `streamlink.rs`, `browser.rs`, `install.rs`, `logo.rs`, `demo.rs` | Streamlink, open URLs (`open` / `xdg-open` off Windows), per-user install/uninstall (Windows), drawn logo, sample data |
 
