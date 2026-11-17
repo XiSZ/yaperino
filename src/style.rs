@@ -708,6 +708,8 @@ pub enum LineAction {
     Reply(crate::chat::Reply),
     /// A clicked "Replying to" line: show that reply thread (its first message's id).
     Thread(String),
+    /// Message menu > Translate (Moltorino): the translation goes under this message.
+    Translate(ChatLine),
 }
 
 /// Who a clicked name belongs to.
@@ -969,6 +971,10 @@ pub fn chat_lines(
                             }));
                             ui.close();
                         }
+                    }
+                    if matches!(line, ChatLine::Msg { .. }) && ui.button("Translate").clicked() {
+                        insert = Some(LineAction::Translate(line.clone()));
+                        ui.close();
                     }
                     if ui.button("Copy message").clicked() {
                         ui.ctx().copy_text(body);

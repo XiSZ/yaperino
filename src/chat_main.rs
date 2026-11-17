@@ -106,6 +106,10 @@ struct MainActions {
     toggle_mod_mode: Option<String>,
     /// Image Uploader: upload this pasted image for this split.
     upload: Option<(String, Arc<egui::ColorImage>)>,
+    /// Message menu > Translate: (the split's key, the message).
+    translate: Option<(String, ChatLine)>,
+    /// Split menu > Auto-translate this chat: on / off for this split.
+    toggle_translate: Option<String>,
 }
 
 impl LiveApp {
@@ -1608,6 +1612,7 @@ impl LiveApp {
                     .iter()
                     .find(|t| t.login == key)
                     .is_some_and(|t| t.twitch.is_some()),
+            auto_translate: self.settings.auto_translate.iter().any(|c| c == key),
         };
         // Chatterino's header buttons, right to left: add split, the split menu, chatters
         let _ = dim;
@@ -1934,6 +1939,9 @@ impl LiveApp {
                 act.focus = Some(key.to_string());
             }
             Some(crate::style::LineAction::Thread(t)) => act.thread = Some((key.to_string(), t)),
+            Some(crate::style::LineAction::Translate(l)) => {
+                act.translate = Some((key.to_string(), l))
+            }
             None => {}
         }
         if ui
@@ -3022,6 +3030,12 @@ impl LiveApp {
         if let Some((key, user)) = act.usercard {
             self.open_usercard(&key, user);
         }
+        if let Some((key, line)) = act.translate {
+            self.translate_line(&key, &line, true);
+        }
+        if let Some(key) = act.toggle_translate {
+            self.toggle_auto_translate(&key);
+        }
         if let Some(ch) = act.toggle_mod_mode {
             if let Some(i) = self.settings.mod_mode.iter().position(|c| *c == ch) {
                 self.settings.mod_mode.remove(i);
@@ -3551,6 +3565,8 @@ struct SplitMenu<'a> {
     filters: Vec<(String, bool)>,
     custom_player: Option<String>,
     mod_tools: bool,
+    /// Auto-translate is on for this split.
+    auto_translate: bool,
 }
 
 /// The split menu (Chatterino's split menu, with the live list's watch items).
@@ -3670,6 +3686,16 @@ fn split_menu(ui: &mut egui::Ui, act: &mut MainActions, m: &SplitMenu) {
     let mut n = m.notify;
     if ui.checkbox(&mut n, "Notify when live").clicked() {
         act.toggle_notify = Some(key.to_string());
+        ui.close();
+    }
+    // Moltorino: translate this chat's new messages (Settings > General > Translation)
+    let mut t = m.auto_translate;
+    if ui
+        .checkbox(&mut t, "Auto-translate this chat")
+        .on_hover_text("New messages in other languages get a translation under them")
+        .clicked()
+    {
+        act.toggle_translate = Some(key.to_string());
         ui.close();
     }
     ui.separator();

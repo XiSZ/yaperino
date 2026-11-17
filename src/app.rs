@@ -15,6 +15,8 @@ mod features;
 mod search;
 #[path = "settings_ui.rs"]
 mod settings_ui;
+#[path = "translate.rs"]
+mod translate;
 #[path = "usercard.rs"]
 mod usercard;
 use crate::browser;
@@ -157,6 +159,13 @@ pub struct Settings {
     /// Spellcheck in the message box (English), and the own words added to it.
     pub spellcheck: bool,
     pub spell_words: Vec<String>,
+    /// Moltorino's translation: the language messages are translated to, the service
+    /// ("Google", no key needed, or "DeepL" with your own key, never in backups) and the
+    /// tabs whose new messages are translated as they arrive.
+    pub translate_to: String,
+    pub translate_provider: String,
+    pub deepl_key: String,
+    pub auto_translate: Vec<String>,
     /// The message length counter and the live dot on tabs.
     pub input_counter: bool,
     pub tab_live_dot: bool,
@@ -311,6 +320,10 @@ impl Default for Settings {
             emote_carousel: true,
             spellcheck: true,
             spell_words: Vec::new(),
+            translate_to: "en".into(),
+            translate_provider: "Google".into(),
+            deepl_key: String::new(),
+            auto_translate: Vec::new(),
             input_counter: true,
             tab_live_dot: true,
             highlight_badges: Vec::new(),
@@ -688,6 +701,8 @@ pub struct LiveApp {
     restoring: bool,
     /// Ctrl+T in a pop-out window: the next split goes into that window.
     split_target: Option<u64>,
+    /// Message translation: the queue and this session's translations.
+    translator: translate::Translator,
 }
 
 /// Lookups by name at once (each asks Twitch, Kick, YouTube and TikTok).
@@ -736,6 +751,8 @@ enum SideMsg {
     YouTubeSignedIn(Result<crate::youtube_auth::YouTubeSaved, String>),
     KickSignedIn(Result<crate::kick_auth::KickSaved, String>),
     KickEmotes(String, Vec<(String, Vec<emotes::Emote>)>),
+    /// A message translation came back (or failed).
+    Translated(translate::Request, Result<translate::Translation, String>),
 }
 
 /// Emote and badge loads finishing in the background.
@@ -851,6 +868,7 @@ impl LiveApp {
             tab_drag: None,
             restoring: false,
             split_target: None,
+            translator: Default::default(),
         };
         app.live_open = app.settings.live_on_start;
         app.migrate_settings();
@@ -1413,6 +1431,7 @@ impl LiveApp {
                         }
                         push_line(tab, line.clone(), &self.emotes);
                     }
+                    self.auto_translate(&ch, &line);
                 }
                 Event::All(line) => {
                     for tab in &mut self.chats {
@@ -1436,6 +1455,7 @@ impl LiveApp {
             self.reload_account_soon();
         }
         self.poll_emotes();
+        self.pump_translations();
     }
 
     // ---------------------------------------------------------------- emotes
@@ -2179,6 +2199,7 @@ impl LiveApp {
                 SideMsg::KickEmotes(g, sets) => {
                     self.emotes.kick_sets.insert(g, sets);
                 }
+                SideMsg::Translated(req, r) => self.translation_done(req, r),
                 SideMsg::YouTubeSignedIn(r) => {
                     self.settings_ui.yt_busy = false;
                     match r {

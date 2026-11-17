@@ -31,6 +31,7 @@
     <li><strong>It talks to the services you use, directly:</strong> Twitch, Kick, YouTube (Google) and TikTok for chat, live status and sign-in; 7TV, BetterTTV and FrankerFaceZ for emotes. Their own privacy policies apply to what you send them. Your sign-ins are only ever sent to the platform they belong to.</li>
     <li>When you aren't signed in to Twitch, the live status of channels is asked from <code>api.ivr.fi</code>, a public Twitch information service.</li>
     <li>When a Twitch chat opens, its recent messages are loaded from <code>recent-messages.robotty.de</code>, the public chat history service Chatterino uses (it learns which channel you opened). You can turn this off in Settings.</li>
+    <li><strong>Translation</strong> only happens when you pick Translate on a message or turn on "Auto-translate this chat". Then the message's text (nothing else) is sent to Google's translator, or to DeepL with your own key if you chose DeepL in Settings. Your DeepL key stays on your computer and is never put in settings backups.</li>
     <li><strong>Image upload</strong> only happens when you paste an image into a message box and confirm it. It goes to the host set in Settings (by default <code>kappa.lol</code>).</li>
     <li><strong>Plugins</strong> you install yourself can only use the network or files when you grant them that permission.</li>
   </ul>

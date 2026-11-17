@@ -73,6 +73,9 @@ Modelled on Chatty's "Live Streams" list.
 - **Spellcheck** (English) in the message box: misspelled words get a red line, right-click
   one for suggestions or to add it to your own words. Emotes, names and chat words are left
   alone.
+- **Translation** (from Moltorino): right-click a message > Translate puts the translation
+  under it; the split menu's "Auto-translate this chat" translates new messages in other
+  languages. Google by default (no key), or DeepL with your own key.
 - **Highlights, ignores, nicknames and custom commands**, with regex support, like Chatterino.
 - **Filters** for splits (Chatterino's filter language, e.g. `message.emote_only`).
 - **Chat history**: opening a Twitch chat shows its recent messages (from

@@ -112,7 +112,7 @@ impl Page {
     }
 }
 /// General's sections, in the index on the right.
-const GENERAL_SECTIONS: [&str; 3] = ["Interface", "Chat", "Emotes"];
+const GENERAL_SECTIONS: [&str; 4] = ["Interface", "Chat", "Translation", "Emotes"];
 
 /// What the Settings window is editing right now (not saved).
 #[derive(Default)]
@@ -621,8 +621,68 @@ impl LiveApp {
         self.interface_section(ui);
         self.section(ui, "Chat");
         self.chat_page(ui);
+        self.section(ui, "Translation");
+        self.translation_section(ui);
         self.section(ui, "Emotes");
         self.emotes_page(ui);
+    }
+    /// General > Translation (Moltorino): the language, the service (Google, or DeepL with
+    /// your own key) and the auto-translated chats.
+    fn translation_section(&mut self, ui: &mut egui::Ui) {
+        ui.label("Right-click a message > Translate: its translation appears under it.");
+        ui.label("Split menu > Auto-translate this chat: new messages in other languages get translated.");
+        heading(ui, "Translate to", TEXT);
+        let s = &mut self.settings;
+        ui.horizontal(|ui| {
+            ui.label("Language");
+            egui::ComboBox::from_id_salt("translate-to")
+                .selected_text(super::translate::language_name(&s.translate_to))
+                .height(320.0)
+                .show_ui(ui, |ui| {
+                    for (code, name) in super::translate::LANGUAGES {
+                        ui.selectable_value(&mut s.translate_to, code.to_string(), name);
+                    }
+                });
+        });
+        heading(ui, "Service", TEXT);
+        ui.horizontal(|ui| {
+            for p in ["Google", "DeepL"] {
+                if ui.selectable_label(s.translate_provider == p, p).clicked() {
+                    s.translate_provider = p.to_string();
+                }
+            }
+        });
+        if s.translate_provider == "DeepL" {
+            ui.horizontal(|ui| {
+                ui.label("DeepL key");
+                ui.add(
+                    egui::TextEdit::singleline(&mut s.deepl_key)
+                        .password(true)
+                        .hint_text("from your DeepL account (free keys end in :fx)")
+                        .desired_width(320.0),
+                );
+            });
+            ui.weak("Your own DeepL API key (free DeepL accounts get 500,000 characters a month).");
+            ui.weak("The key is never put in settings backups.");
+        } else {
+            ui.weak("Google's web translator: free, no key needed.");
+        }
+        ui.weak("Only the message's text is sent, only when translating: to Google, or DeepL with your key.");
+        ui.weak("At most one message a second; in busy chats some messages are skipped.");
+        if !s.auto_translate.is_empty() {
+            ui.label("Auto-translated chats (click one to stop):");
+            let mut remove = None;
+            ui.horizontal_wrapped(|ui| {
+                for (i, c) in s.auto_translate.iter().enumerate() {
+                    if ui.small_button(format!("{c}  ✕")).clicked() {
+                        remove = Some(i);
+                    }
+                }
+            });
+            if let Some(i) = remove {
+                s.auto_translate.remove(i);
+            }
+        }
     }
     // ------------------------------------------------------------- Accounts
 

@@ -1,7 +1,7 @@
 //! Moltorino's Settings Manager: back up the settings to a file, restore one, and a
 //! automatic daily backup (the last 10 are kept). Backups never hold sign-ins: Twitch
-//! accounts, the Twitch Client ID, Kick and YouTube sign-ins are left out, and a restore
-//! keeps the ones in use. A child of `app`.
+//! accounts, the Twitch Client ID, Kick and YouTube sign-ins and the DeepL key are left out,
+//! and a restore keeps the ones in use. A child of `app`.
 
 use super::*;
 
@@ -22,6 +22,7 @@ fn without_sign_ins(s: &Settings) -> Settings {
     s.twitch_client_id.clear();
     s.youtube = Default::default();
     s.kick = Default::default();
+    s.deepl_key.clear();
     s
 }
 
@@ -40,6 +41,7 @@ pub fn from_backup(current: &Settings, text: &str) -> Result<Settings, String> {
     s.twitch_client_id = current.twitch_client_id.clone();
     s.youtube = current.youtube.clone();
     s.kick = current.kick.clone();
+    s.deepl_key = current.deepl_key.clone();
     Ok(s)
 }
 
@@ -114,19 +116,22 @@ mod tests {
         mine.current_twitch = "me".into();
         mine.kick.token = "kick-secret".into();
         mine.youtube.refresh_token = "yt-secret".into();
+        mine.deepl_key = "deepl-secret:fx".into();
         mine.bold_names = !mine.bold_names;
         let text = to_backup(&mine).unwrap();
-        for secret in ["my-client-id", "kick-secret", "yt-secret"] {
+        for secret in ["my-client-id", "kick-secret", "yt-secret", "deepl-secret"] {
             assert!(!text.contains(secret), "{secret} is in the backup");
         }
         // restoring into other settings: their sign-ins stay, the rest comes from the backup
         let mut other = Settings::default();
         other.kick.token = "other-kick".into();
         other.twitch_client_id = "other-id".into();
+        other.deepl_key = "other-deepl".into();
         let restored = from_backup(&other, &text).unwrap();
         assert_eq!(restored.bold_names, mine.bold_names);
         assert_eq!(restored.kick.token, "other-kick");
         assert_eq!(restored.twitch_client_id, "other-id");
+        assert_eq!(restored.deepl_key, "other-deepl");
         assert!(from_backup(&other, "not json").is_err());
     }
 }
