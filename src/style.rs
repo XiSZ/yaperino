@@ -619,7 +619,7 @@ pub fn flat_tab(ui: &mut egui::Ui, label: &str, selected: bool, accent: Color32)
     p.galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, c);
     resp
 }
-fn name_color(c: Option<[u8; 3]>, name: &str) -> Color32 {
+pub fn name_color(c: Option<[u8; 3]>, name: &str) -> Color32 {
     if let Some([r, g, b]) = c {
         // lift very dark colours so they stay readable on black
         let lum = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
@@ -702,6 +702,17 @@ pub enum LineAction {
     Hide(String),
     /// A clicked #channel: switch to its tab or open it.
     OpenChannel(String),
+    /// A clicked user name: open the usercard.
+    UserCard(UserRef),
+}
+
+/// Who a clicked name belongs to.
+#[derive(Clone, Debug)]
+pub struct UserRef {
+    pub name: String,
+    /// Twitch's user id (empty on the other platforms).
+    pub user_id: String,
+    pub platform: crate::platforms::Platform,
 }
 
 /// Draws a chat; returns what an emote's right-click menu asked for.
@@ -824,6 +835,7 @@ pub fn chat_lines(
                 let mut hits: Vec<(egui::Rect, emotes::Emote)> = Vec::new();
                 let mut mod_hits: Vec<(egui::Rect, crate::moderation::ModAction)> = Vec::new();
                 let mut chan_hits: Vec<(egui::Rect, String)> = Vec::new();
+                let mut name_hits: Vec<(egui::Rect, UserRef)> = Vec::new();
                 let r = frame.show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     draw_line(
@@ -838,6 +850,7 @@ pub fn chat_lines(
                         &mut hits,
                         &mut mod_hits,
                         &mut chan_hits,
+                        &mut name_hits,
                     );
                 });
                 if look.separators {
@@ -874,12 +887,20 @@ pub fn chat_lines(
                             .map(|(_, c)| c.clone())
                     }) {
                         insert = Some(LineAction::OpenChannel(c));
+                    } else if let Some(u) = at.and_then(|p| {
+                        name_hits
+                            .iter()
+                            .find(|(r, _)| r.contains(p))
+                            .map(|(_, u)| u.clone())
+                    }) {
+                        insert = Some(LineAction::UserCard(u));
                     }
                 }
                 if menu.hovered()
-                    && menu
-                        .hover_pos()
-                        .is_some_and(|p| chan_hits.iter().any(|(r, _)| r.contains(p)))
+                    && menu.hover_pos().is_some_and(|p| {
+                        chan_hits.iter().any(|(r, _)| r.contains(p))
+                            || name_hits.iter().any(|(r, _)| r.contains(p))
+                    })
                 {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
@@ -1059,6 +1080,7 @@ fn draw_line(
     hits: &mut Vec<(egui::Rect, emotes::Emote)>,
     mod_hits: &mut Vec<(egui::Rect, crate::moderation::ModAction)>,
     chan_hits: &mut Vec<(egui::Rect, String)>,
+    name_hits: &mut Vec<(egui::Rect, UserRef)>,
 ) {
     match line {
         ChatLine::Msg {
@@ -1175,7 +1197,18 @@ fn draw_line(
                 } else {
                     theme::c().strong_text
                 };
-                ui.label(RichText::new(shown).font(name_font).color(nc));
+                let name_rect = ui
+                    .label(RichText::new(shown).font(name_font).color(nc))
+                    .rect;
+                // clicking the name opens the usercard (see chat_lines)
+                name_hits.push((
+                    name_rect,
+                    UserRef {
+                        name: name.clone(),
+                        user_id: user_id.clone(),
+                        platform: *platform,
+                    },
+                ));
                 let body_color = if *action { nc } else { text_color };
                 ui.label(
                     RichText::new(if *action { " " } else { ": " })
@@ -1285,6 +1318,24 @@ pub enum BarIcon {
     Live,
     /// The emote menu button: a smiling face.
     Smiley,
+    /// Chatterino's moderation mode button: a sword.
+    Sword,
+}
+
+/// A header button that stays lit while `on` (the moderation-mode sword).
+pub fn bar_icon_toggle(ui: &mut egui::Ui, icon: BarIcon, size: Vec2, on: bool) -> egui::Response {
+    let r = bar_icon_sized(ui, icon, size);
+    if on {
+        let accent = theme::c().accent;
+        let p = ui.painter();
+        p.rect_filled(r.rect, 2.0, accent.gamma_multiply(0.28));
+        p.hline(
+            (r.rect.left() + 3.0)..=(r.rect.right() - 3.0),
+            r.rect.bottom() - 1.5,
+            Stroke::new(2.0, accent),
+        );
+    }
+    r
 }
 
 /// A title-bar button like Chatterino's: no frame, a light square when hovered.
@@ -1398,6 +1449,17 @@ pub fn bar_icon_sized(ui: &mut egui::Ui, icon: BarIcon, size: Vec2) -> egui::Res
             let s = Stroke::new(1.4, col);
             p.line_segment([c + Vec2::new(-5.0, 0.0), c + Vec2::new(5.0, 0.0)], s);
             p.line_segment([c + Vec2::new(0.0, -5.0), c + Vec2::new(0.0, 5.0)], s);
+        }
+        BarIcon::Sword => {
+            // blade to the top right, crossguard and grip at the bottom left
+            let guard = c + Vec2::new(-2.5, 2.5);
+            let s = Stroke::new(1.5, col);
+            p.line_segment([guard, c + Vec2::new(6.0, -6.0)], s);
+            p.line_segment(
+                [guard + Vec2::new(-3.0, -3.0), guard + Vec2::new(3.0, 3.0)],
+                s,
+            );
+            p.line_segment([guard, c + Vec2::new(-6.0, 6.0)], Stroke::new(2.2, col));
         }
         BarIcon::Gear => {
             for i in 0..8 {

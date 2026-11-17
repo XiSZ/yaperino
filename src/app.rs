@@ -11,6 +11,8 @@ mod chat_main;
 mod features;
 #[path = "settings_ui.rs"]
 mod settings_ui;
+#[path = "usercard.rs"]
+mod usercard;
 use crate::browser;
 use crate::fetch::{self, FetchResult, Job};
 use crate::model::{self, SortMode, Stream};
@@ -190,6 +192,9 @@ pub struct Settings {
     /// Moderation > Moderation buttons / User Timeout Buttons.
     pub mod_buttons: bool,
     pub timeout_buttons: Vec<String>,
+    /// Chatterino's moderation mode (the sword in a split's header): Twitch channels that show
+    /// the moderation buttons in front of every message.
+    pub mod_mode: Vec<String>,
     /// Live Notifications > Show notification (Windows), and what clicking it does.
     pub notify_toast: bool,
     pub notify_click: String,
@@ -311,6 +316,7 @@ impl Default for Settings {
             collapse_repeats: false,
             hotkeys: HashMap::new(),
             mod_buttons: false,
+            mod_mode: Vec::new(),
             notify_toast: false,
             notify_click: "Open chat tab".into(),
             uploader_enabled: false,
@@ -546,6 +552,10 @@ pub struct LiveApp {
     demo: bool,
     chat: Option<chat::Chat>,
     chat_name: Option<String>,
+    /// Twitch channels the signed-in account moderates (or owns), from the chat (USERSTATE).
+    mod_in: HashSet<String>,
+    /// The open usercard (Chatterino's user popup), if any.
+    usercard: Option<usercard::UserCard>,
     account: Option<Account>,
     account_status: String,
     account_loading: bool,
@@ -732,6 +742,8 @@ impl LiveApp {
             demo,
             chat: None,
             chat_name: None,
+            mod_in: HashSet::new(),
+            usercard: None,
             account: None,
             account_status: "Not signed in".into(),
             account_loading: false,
@@ -1359,6 +1371,13 @@ impl LiveApp {
                 }
                 Event::Connected(name) => self.chat_name = name,
                 Event::Room(ch, id) => self.room_found(ch, id),
+                Event::ModIn(ch, yes) => {
+                    if yes {
+                        self.mod_in.insert(ch);
+                    } else {
+                        self.mod_in.remove(&ch);
+                    }
+                }
                 Event::AuthFailed => reload = true,
             }
         }

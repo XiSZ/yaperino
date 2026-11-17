@@ -17,7 +17,7 @@ use std::time::Duration;
 
 /// The permissions asked for: the part of Moltorino's scope list (its
 /// TwitchAccount scope table) that this app uses.
-pub const SCOPES: &str = "chat:read chat:edit whispers:read user:read:follows user:read:chat user:write:chat user:read:emotes user:read:blocked_users user:manage:blocked_users user:manage:chat_color moderator:manage:banned_users moderator:manage:chat_messages moderator:manage:chat_settings moderator:manage:warnings moderator:manage:shield_mode moderator:manage:announcements moderator:manage:shoutouts moderator:manage:blocked_terms channel:manage:moderators channel:manage:vips channel:manage:raids channel:edit:commercial channel:manage:broadcast channel:manage:polls channel:manage:predictions";
+pub const SCOPES: &str = "chat:read chat:edit whispers:read user:read:follows moderator:read:followers user:read:chat user:write:chat user:read:emotes user:read:blocked_users user:manage:blocked_users user:manage:chat_color moderator:manage:banned_users moderator:manage:chat_messages moderator:manage:chat_settings moderator:manage:warnings moderator:manage:shield_mode moderator:manage:announcements moderator:manage:shoutouts moderator:manage:blocked_terms channel:manage:moderators channel:manage:vips channel:manage:raids channel:edit:commercial channel:manage:broadcast channel:manage:polls channel:manage:predictions";
 /// The Client ID of this app's registered Twitch application (Public client), given by
 /// the person; device login works with no setup. Settings can override it.
 /// Built in from `twitch_client_id.txt` next to Cargo.toml (or YAPERINO_TWITCH_CLIENT_ID) by

@@ -94,6 +94,10 @@ struct MainActions {
     set_tab_layout: Option<String>,
     /// A moderation action in a split's (Twitch) channel.
     moderate: Option<(String, crate::moderation::ModAction)>,
+    /// A clicked name: open its usercard (the split's key, the user).
+    usercard: Option<(String, crate::style::UserRef)>,
+    /// The sword in a split's header: moderation mode on / off for this Twitch channel.
+    toggle_mod_mode: Option<String>,
     /// Image Uploader: upload this pasted image for this split.
     upload: Option<(String, Arc<egui::ColorImage>)>,
 }
@@ -1310,6 +1314,23 @@ impl LiveApp {
 
         self.emote_menu_window(ui.ctx(), &mut act);
         self.chatters_window(ui.ctx());
+        if let Some((group, a)) = self.usercard_window(ui.ctx()) {
+            use super::usercard::CardAction;
+            match a {
+                CardAction::Moderate(m) => act.moderate = Some((group, m)),
+                CardAction::Mention(n) => {
+                    if let Some(tab) = self.chats.iter_mut().find(|t| t.login == group) {
+                        if !tab.input.is_empty() && !tab.input.ends_with(' ') {
+                            tab.input.push(' ');
+                        }
+                        tab.input.push_str(&format!("@{n} "));
+                    }
+                    act.focus = Some(group);
+                }
+                CardAction::Hide(n) => act.hide_user = Some((n, true)),
+                CardAction::OpenChannel(c) => act.open_channel = Some(c),
+            }
+        }
         self.popup_windows(ui.ctx(), &mut act);
         self.apply_main_actions(act);
     }
@@ -1374,6 +1395,20 @@ impl LiveApp {
             .iter()
             .any(|c| c.eq_ignore_ascii_case(key));
         let mut look = self.chat_look(self.chats[idx].search.clone());
+        // moderation only where the account moderates this Twitch channel (or owns it); the
+        // per-message buttons when Settings > Moderation turns them on or the split's sword does
+        let twitch_channel = self.chats[idx].twitch.clone();
+        // screenshot test only: act as a moderator everywhere
+        let shot_mod = self.shot.is_some() && std::env::var("LIVE_STREAMS_SHOT_MOD").is_ok();
+        let moderates_here = twitch_channel
+            .as_ref()
+            .is_some_and(|c| self.mod_in.contains(c))
+            || shot_mod;
+        let mod_mode = twitch_channel
+            .as_ref()
+            .is_some_and(|c| self.settings.mod_mode.contains(c));
+        look.moderation = (look.moderation || shot_mod) && moderates_here;
+        look.mod_buttons = look.mod_buttons || mod_mode;
         // the filters picked for this split (split menu > Set filters)
         if let Some(names) = self.settings.split_filters.get(key) {
             look.filters = names
@@ -1530,6 +1565,23 @@ impl LiveApp {
         .clicked()
         {
             act.chatters = Some(key.to_string());
+        }
+        // Chatterino's moderation mode: a sword, only in channels you moderate
+        if let (true, Some(ch)) = (look.moderation, twitch_channel.as_ref()) {
+            let r = crate::style::bar_icon_toggle(
+                &mut bar,
+                crate::style::BarIcon::Sword,
+                Vec2::new(24.0, 22.0),
+                mod_mode,
+            )
+            .on_hover_text(if mod_mode {
+                "Moderation mode is on: mod buttons in front of every message (click to turn off)"
+            } else {
+                "Moderation mode: mod buttons in front of every message"
+            });
+            if r.clicked() {
+                act.toggle_mod_mode = Some(ch.clone());
+            }
         }
         if header_resp.clicked() {
             act.focus = Some(key.to_string());
@@ -1776,6 +1828,9 @@ impl LiveApp {
             Some(crate::style::LineAction::Favourite(e)) => act.favourite = Some(e),
             Some(crate::style::LineAction::Moderate(m)) => {
                 act.moderate = Some((key.to_string(), m))
+            }
+            Some(crate::style::LineAction::UserCard(u)) => {
+                act.usercard = Some((key.to_string(), u))
             }
             Some(crate::style::LineAction::Hide(u)) => act.hide_user = Some((u, true)),
             Some(crate::style::LineAction::OpenChannel(c)) => act.open_channel = Some(c),
@@ -2581,6 +2636,16 @@ impl LiveApp {
         }
         if let Some((key, m)) = act.moderate {
             self.moderate(&key, m);
+        }
+        if let Some((key, user)) = act.usercard {
+            self.open_usercard(&key, user);
+        }
+        if let Some(ch) = act.toggle_mod_mode {
+            if let Some(i) = self.settings.mod_mode.iter().position(|c| *c == ch) {
+                self.settings.mod_mode.remove(i);
+            } else {
+                self.settings.mod_mode.push(ch);
+            }
         }
         if let Some(v) = act.set_tab_visibility {
             self.settings.tab_live_only = v == 1;

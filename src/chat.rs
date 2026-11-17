@@ -55,6 +55,10 @@ pub enum Event {
     Connected(Option<String>),
     /// A channel's Twitch id (ROOMSTATE room-id), for its 7TV/BTTV/FFZ emotes and badges.
     Room(String, String),
+    /// Whether the signed-in account moderates this channel (USERSTATE: mod=1, or the
+    /// broadcaster badge in its own channel); the usercard's mod actions and the split's
+    /// moderation mode (sword) need it.
+    ModIn(String, bool),
 }
 
 pub enum Cmd {
@@ -318,6 +322,12 @@ fn handle(raw: &str, st: &mut State, emit: &impl Fn(Event)) {
             if let Some(b) = tag(p.tags, "badges") {
                 st.badges = parse_badges(b);
             }
+            // USERSTATE is per channel: are we a moderator (or the broadcaster) there?
+            if p.cmd == "USERSTATE" {
+                if let Some(ch) = channel_of(p.params) {
+                    emit(Event::ModIn(ch, moderates(p.tags)));
+                }
+            }
         }
         "ROOMSTATE" => {
             if let (Some(ch), Some(id)) = (channel_of(p.params), tag(p.tags, "room-id")) {
@@ -363,6 +373,14 @@ fn parse(raw: &str) -> Option<Parsed<'_>> {
 fn channel_of(params: &str) -> Option<String> {
     let first = params.split(' ').next()?;
     first.strip_prefix('#').map(|c| c.to_lowercase())
+}
+
+/// A USERSTATE's tags: moderator there (mod=1), or its broadcaster.
+fn moderates(tags: &str) -> bool {
+    tag(tags, "mod") == Some("1")
+        || tag(tags, "badges")
+            .map(parse_badges)
+            .is_some_and(|b| b.iter().any(|(set, _)| set == "broadcaster"))
 }
 
 fn trailing(params: &str) -> &str {
@@ -544,6 +562,17 @@ fn windows_offset() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn moderator_in_a_channel() {
+        assert!(moderates(
+            "badge-info=;badges=moderator/1;color=;mod=1;subscriber=0"
+        ));
+        // your own channel: the broadcaster badge, mod=0
+        assert!(moderates("badges=broadcaster/1,premium/1;mod=0"));
+        assert!(!moderates("badges=subscriber/12;mod=0"));
+        assert!(!moderates("badges=;mod=0"));
+    }
 
     #[test]
     fn parses_privmsg() {
