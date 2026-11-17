@@ -306,7 +306,7 @@ impl LiveApp {
                         Some(Ok(pr)) => {
                             ui.horizontal_wrapped(|ui| {
                                 if let Some(c) = pr.created {
-                                    pill(ui, &format!("Joined {}", short_age(c)), chip_bg, p.text)
+                                    pill(ui, &format!("Joined {}", short_date(c)), chip_bg, p.text)
                                         .on_hover_text(format!("Account created {}", date_and_age(c)));
                                 }
                                 if let Some(f) = pr.followers {
@@ -322,7 +322,7 @@ impl LiveApp {
                                         Some(at) => {
                                             pill(
                                                 ui,
-                                                &format!("Following {}", short_age(*at)),
+                                                &format!("Following since {}", short_date(*at)),
                                                 p.accent.gamma_multiply(0.45),
                                                 p.strong_text,
                                             )
@@ -532,7 +532,11 @@ fn pill(ui: &mut egui::Ui, text: &str, fill: Color32, color: Color32) -> egui::R
         .corner_radius(10)
         .inner_margin(egui::Margin::symmetric(9, 3))
         .show(ui, |ui| {
-            ui.label(egui::RichText::new(text).size(12.5).color(color));
+            // never broken inside: a pill that doesn't fit moves to the next line whole
+            ui.add(
+                egui::Label::new(egui::RichText::new(text).size(12.5).color(color))
+                    .wrap_mode(egui::TextWrapMode::Extend),
+            );
         })
         .response
 }
@@ -549,16 +553,11 @@ fn soft_button(ui: &mut egui::Ui, text: &str) -> egui::Response {
     )
 }
 
-/// "4y", "3mo", "12d": how long ago, short.
-fn short_age(unix: i64) -> String {
-    let days = (crate::model::now_unix() - unix).max(0) / 86_400;
-    if days >= 365 {
-        format!("{}y ago", days / 365)
-    } else if days >= 30 {
-        format!("{}mo ago", days / 30)
-    } else {
-        format!("{days}d ago")
-    }
+/// "Nov 18, 2022" from Unix seconds (the pills; the age is in their tooltips).
+fn short_date(unix: i64) -> String {
+    chrono::DateTime::from_timestamp(unix, 0)
+        .map(|d| d.format("%b %-d, %Y").to_string())
+        .unwrap_or_default()
 }
 
 /// "May 1, 2016 (9 years)" from Unix seconds.
