@@ -32,22 +32,14 @@ the sample data only (never real channels or accounts). See PUBLISHING.md > The 
 
 ```
 cargo build                 # target\debug\live-streams.exe (the binary keeps this old name)
-cargo test                  # 34 unit tests; 11 network tests are #[ignore]
+cargo test                  # 37 unit tests; 11 network tests are #[ignore]
 cargo build --release       # what a release ships, renamed Yaperino.exe
 cargo fmt                   # rustfmt's default style; CI fails on `cargo fmt --check`
 ```
 
-- **Windows ransomware protection (Controlled Folder Access)** guards Documents on the dev
-  machine. Workarounds:
-  - `.cargo/config.toml` (machine-local, git-ignored) puts cargo's intermediate `build-dir`
-    in the cargo cache.
-  - Test builds can go elsewhere: set `CARGO_TARGET_DIR=%LOCALAPPDATA%\Temp\yaperino-test`
-    before `cargo build`. Screenshots taken from that copy must be saved outside Documents
-    (e.g. `%LOCALAPPDATA%\Temp\yaperino-shots`).
-  - `cargo fmt` can't write there ("Access is denied"). Format each file to stdout and copy
-    it back with a shell tool instead:
-    `rustfmt --edition 2021 --emit stdout < src/x.rs > %TEMP%\x.rs` then copy it over
-    `src/x.rs`. `cargo fmt --check` (read only) works normally.
+- The project lives in `C:\dev\yaperino` on the dev machine (outside Documents, where
+  Windows' ransomware protection blocked git, build scripts and `cargo fmt`). Builds, tests,
+  `cargo fmt` and git work normally here; no workarounds needed.
 - **The person often has the app running.** Don't kill it. If the build can't replace
   `target\debug\live-streams.exe`, rename the old exe aside (`live-streams.old-<time>.exe`)
   and build again. Started from `target\`, the app relaunches itself from a copy in
@@ -131,8 +123,7 @@ Network tests: `LIVE_STREAMS_TEST_LOGIN` (Chatterino login-info format), then
   commit messages, no "Generated with ..." line in pull requests or release notes, and never
   an AI name or e-mail as git author or committer. The owner is the only author. This
   overrides any attribution your tool adds by default.
-- Git on the dev machine: the repository data lives outside Documents (ransomware
-  protection blocks git there); `app/.git` is a one-line pointer file. Git commands work
-  normally from this folder. See PUBLISHING.md for GitHub.
+- Git: an ordinary clone of https://github.com/XiSZ/yaperino. See PUBLISHING.md for
+  releases and the website.
 - After a change: `cargo build`, `cargo test`, a screenshot of what changed, and one of the
   Live Streams window (`LIVE_STREAMS_SHOT_LIVE=1`) to check it still matches.

@@ -74,9 +74,10 @@ a password, but this keeps it out of the code.)
 
 ## Git on this computer
 
-Windows' ransomware protection (Controlled Folder Access) doesn't let git write inside
-Documents, so the repository's own data lives in `%LOCALAPPDATA%\Yaperino-git`. The small
-`.git` file here just points there. Git commands work in this folder as usual. Keep both.
+The project is a normal clone in `C:\dev\yaperino`. Keep it outside Documents: Windows'
+ransomware protection (Controlled Folder Access) blocks git and the build there. The private
+files that are never pushed (`twitch_client_id.txt`, `HANDOVER.md`, `MECHANICS.md`) live only
+in this folder; copy them along if the folder ever moves.
 
 ## Visitors, clones and downloads
 
