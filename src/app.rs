@@ -362,6 +362,8 @@ struct ChatTab {
     tab_cycle: Option<(Vec<String>, usize, String)>,
     /// An image pasted into the message box, waiting for "Upload" (Image Uploader).
     pending_image: Option<Arc<egui::ColorImage>>,
+    /// The message the next Twitch message answers (message menu > Reply).
+    reply_to: Option<chat::Reply>,
 }
 
 /// A tab of the main window (or of a pop-out window): its splits and an optional name.
@@ -1741,6 +1743,7 @@ impl LiveApp {
             ac_dismissed: None,
             tab_cycle: None,
             pending_image: None,
+            reply_to: None,
         });
         self.active_chat = self.chats.len() - 1;
         if primary != Platform::Twitch {
@@ -2203,13 +2206,15 @@ impl LiveApp {
         }
         match platform {
             Platform::Twitch => {
-                let tw = self
+                // a reply when message menu > Reply picked a message (used once)
+                let (tw, reply) = self
                     .chats
-                    .iter()
+                    .iter_mut()
                     .find(|t| t.login == group)
-                    .and_then(|t| t.twitch.clone());
+                    .map(|t| (t.twitch.clone(), t.reply_to.take()))
+                    .unwrap_or((None, None));
                 if let (Some(c), Some(tw)) = (&self.chat, tw) {
-                    c.send(Cmd::Send(tw, text));
+                    c.send(Cmd::Send(tw, text, reply));
                 }
             }
             Platform::Kick => {
@@ -3819,6 +3824,7 @@ mod tests {
             platform: Platform::Twitch,
             msg_id: String::new(),
             user_id: String::new(),
+            reply: None,
         };
         let mut last = m("amy", "hello");
         assert!(collapse_repeat(&mut last, &m("amy", "hello")));

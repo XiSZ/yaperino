@@ -38,8 +38,21 @@ pub enum ChatLine {
         /// Twitch's message id and the sender's user id (tags id, user-id), for moderation.
         msg_id: String,
         user_id: String,
+        /// The message this one answers (Twitch replies).
+        reply: Option<Box<Reply>>,
     },
     System(String),
+}
+
+/// What a reply answers (Twitch's reply-parent-* and reply-thread-parent-* tags).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Reply {
+    /// The answered message's id; replying to it sends this.
+    pub parent_id: String,
+    pub parent_name: String,
+    pub parent_body: String,
+    /// The first message of the thread (a reply to a reply belongs to the same thread).
+    pub thread_id: String,
 }
 
 /// What the chat thread reports back to the window.
@@ -64,7 +77,8 @@ pub enum Event {
 pub enum Cmd {
     Join(String),
     Part(String),
-    Send(String, String),
+    /// (channel, text, the message it answers when it's a reply)
+    Send(String, String, Option<Reply>),
     /// (login, token) or None for anonymous.
     Auth(Option<(String, String)>),
 }
@@ -142,7 +156,7 @@ fn apply_offline(st: &mut State, c: Cmd, emit: &impl Fn(Event)) {
             st.channels.remove(&ch);
         }
         Cmd::Auth(a) => st.auth = a,
-        Cmd::Send(ch, _) => emit(Event::Line(
+        Cmd::Send(ch, _, _) => emit(Event::Line(
             ch,
             ChatLine::System("Not connected yet; message not sent.".into()),
         )),
@@ -222,7 +236,7 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
                         return Ok(Exit::Reconnect);
                     }
                 }
-                Ok(Cmd::Send(ch, msg)) => {
+                Ok(Cmd::Send(ch, msg, reply)) => {
                     let msg: String = msg
                         .replace(['\r', '\n'], " ")
                         .chars()
@@ -237,7 +251,15 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
                             ),
                         ));
                     } else if !msg.trim().is_empty() {
-                        text(&mut ws, format!("PRIVMSG #{ch} :{msg}"))?;
+                        // a reply carries the answered message's id (Twitch's reply tag)
+                        let raw = match &reply {
+                            Some(r) => format!(
+                                "@reply-parent-msg-id={} PRIVMSG #{ch} :{msg}",
+                                r.parent_id
+                            ),
+                            None => format!("PRIVMSG #{ch} :{msg}"),
+                        };
+                        text(&mut ws, raw)?;
                         let (body, action) = match msg.strip_prefix("/me ") {
                             Some(b) => (b.to_string(), true),
                             None => (msg.clone(), false),
@@ -262,6 +284,7 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
                                 platform: crate::platforms::Platform::Twitch,
                                 msg_id: String::new(),
                                 user_id: String::new(),
+                                reply: reply.map(Box::new),
                             },
                         ));
                     }
@@ -375,6 +398,35 @@ fn channel_of(params: &str) -> Option<String> {
     first.strip_prefix('#').map(|c| c.to_lowercase())
 }
 
+/// The message a PRIVMSG answers, from its reply-parent-* tags.
+fn reply_of(tags: &str) -> Option<Reply> {
+    let parent_id = tag(tags, "reply-parent-msg-id").filter(|s| !s.is_empty())?;
+    let parent_name = tag(tags, "reply-parent-display-name")
+        .filter(|s| !s.is_empty())
+        .or_else(|| tag(tags, "reply-parent-user-login"))
+        .map(unescape)
+        .unwrap_or_default();
+    Some(Reply {
+        parent_id: parent_id.to_string(),
+        parent_name,
+        parent_body: tag(tags, "reply-parent-msg-body")
+            .map(unescape)
+            .unwrap_or_default(),
+        thread_id: tag(tags, "reply-thread-parent-msg-id")
+            .filter(|s| !s.is_empty())
+            .unwrap_or(parent_id)
+            .to_string(),
+    })
+}
+
+/// How many characters "@parent " takes at the start of a reply (by login or display name).
+fn reply_prefix_len(text: &str, login: &str, display: &str) -> Option<usize> {
+    let word = text.strip_prefix('@')?.split(' ').next()?;
+    let matches = (!login.is_empty() && word.eq_ignore_ascii_case(login))
+        || (!display.is_empty() && word.eq_ignore_ascii_case(display));
+    matches.then(|| 1 + word.chars().count() + usize::from(text.chars().nth(1 + word.chars().count()) == Some(' ')))
+}
+
 /// A USERSTATE's tags: moderator there (mod=1), or its broadcaster.
 fn moderates(tags: &str) -> bool {
     tag(tags, "mod") == Some("1")
@@ -409,10 +461,25 @@ fn to_line(p: &Parsed<'_>) -> Option<(Option<String>, ChatLine)> {
                 Some(t) => (t.to_string(), true),
                 None => (text.to_string(), false),
             };
-            let emotes = tag(p.tags, "emotes")
+            let mut emotes = tag(p.tags, "emotes")
                 .map(crate::emotes::parse_emote_tag)
                 .unwrap_or_default();
             let badges = tag(p.tags, "badges").map(parse_badges).unwrap_or_default();
+            let reply = reply_of(p.tags);
+            // a reply starts with "@parent " (Twitch adds it); the reply line above shows who,
+            // so it goes, like in Chatterino (and the emote positions move with the text)
+            let mut text = text;
+            if let Some(r) = &reply {
+                let login = tag(p.tags, "reply-parent-user-login").unwrap_or("");
+                if let Some(cut) = reply_prefix_len(&text, login, &r.parent_name) {
+                    text = text.chars().skip(cut).collect();
+                    emotes = emotes
+                        .into_iter()
+                        .filter(|(a, _, _)| *a >= cut)
+                        .map(|(a, b, id)| (a - cut, b - cut, id))
+                        .collect();
+                }
+            }
             Some((
                 ch,
                 ChatLine::Msg {
@@ -428,6 +495,7 @@ fn to_line(p: &Parsed<'_>) -> Option<(Option<String>, ChatLine)> {
                     platform: crate::platforms::Platform::Twitch,
                     msg_id: tag(p.tags, "id").unwrap_or("").to_string(),
                     user_id: tag(p.tags, "user-id").unwrap_or("").to_string(),
+                    reply: reply.map(Box::new),
                 },
             ))
         }

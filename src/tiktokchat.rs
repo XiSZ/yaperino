@@ -448,6 +448,7 @@ fn session(
                             platform: Platform::TikTok,
                             msg_id: String::new(),
                             user_id: String::new(),
+                            reply: None,
                         },
                     ));
                 }

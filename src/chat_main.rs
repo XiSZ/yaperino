@@ -2584,6 +2584,7 @@ impl LiveApp {
                         platform,
                         msg_id: String::new(),
                         user_id: String::new(),
+                        reply: None,
                     },
                 );
             } else if !self.run_plugin_command(&ch, &text, platform) {

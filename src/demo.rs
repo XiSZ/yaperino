@@ -167,6 +167,7 @@ pub fn chat_lines() -> Vec<ChatLine> {
         platform: crate::platforms::Platform::Twitch,
         msg_id: String::new(),
         user_id: String::new(),
+        reply: None,
     };
     vec![
         ChatLine::System("Sample chat (screenshot mode)".into()),
@@ -229,6 +230,7 @@ fn other(platform: Platform, t: &str, n: &str, c: [u8; 3], x: &str) -> ChatLine 
         platform,
         msg_id: String::new(),
         user_id: String::new(),
+        reply: None,
     }
 }
 

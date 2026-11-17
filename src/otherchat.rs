@@ -52,6 +52,7 @@ fn msg(
         platform,
         msg_id: String::new(),
         user_id: String::new(),
+        reply: None,
     }
 }
 
