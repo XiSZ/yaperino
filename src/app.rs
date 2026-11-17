@@ -9,6 +9,8 @@ use crate::platforms::{self, Links, Platform};
 mod chat_main;
 #[path = "features.rs"]
 mod features;
+#[path = "search.rs"]
+mod search;
 #[path = "settings_ui.rs"]
 mod settings_ui;
 #[path = "usercard.rs"]
@@ -560,6 +562,8 @@ pub struct LiveApp {
     usercard: Option<usercard::UserCard>,
     /// The open reply thread: (tab key, the thread's first message id).
     thread: Option<(String, String)>,
+    /// Search across all chats (Ctrl+Shift+F), when open.
+    global_search: Option<search::GlobalSearch>,
     account: Option<Account>,
     account_status: String,
     account_loading: bool,
@@ -749,6 +753,7 @@ impl LiveApp {
             mod_in: HashSet::new(),
             usercard: None,
             thread: None,
+            global_search: None,
             account: None,
             account_status: "Not signed in".into(),
             account_loading: false,

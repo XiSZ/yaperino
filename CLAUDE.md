@@ -68,6 +68,9 @@ and exits. It never loads sign-ins, never saves settings and never touches the n
 | `LIVE_STREAMS_SHOT_TABS=Left/Right/Bottom` | tab position |
 | `LIVE_STREAMS_SHOT_THEME=<theme>` | Dark, Black, Light, White |
 | `LIVE_STREAMS_SHOT_LOCK / _EMPTY / _MOLT / _MOD` | locked tab / empty tab / tab colours + source backgrounds / Moderation menu |
+| `LIVE_STREAMS_SHOT_USERCARD=1` | a usercard (with `LIVE_STREAMS_SHOT_MOD=1`: its moderation row and the sword) |
+| `LIVE_STREAMS_SHOT_REPLY=1` / `_THREAD=1` | a sample reply and the "Replying to" bar / the reply thread window |
+| `LIVE_STREAMS_SHOT_SEARCH=<text>` | the search across all chats (Ctrl+Shift+F) with that text |
 | `LIVE_STREAMS_SHOT_MANY_TABS=1` | 21 sample tabs: more than fit, to check wrapping (top/bottom) and scrolling (left/right) |
 | `LIVE_STREAMS_SHOT_EMOTES / _OPEN / _MULTI / _PLATFORMS / _COMPLETE` | emote window / open-channel dialog / multi-select / platforms / completion |
 

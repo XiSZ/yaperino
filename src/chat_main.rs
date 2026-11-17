@@ -336,6 +336,8 @@ impl LiveApp {
         let settings = k("settings");
         let change = k("change_channel");
         let reopen = k("reopen_split");
+        // before Ctrl+F, so Ctrl+Shift+F isn't taken as Ctrl+F
+        let search_all = k("search_all");
         let search = k("search");
         let toggle_tabs = k("toggle_tabs");
         let emotes = ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::E));
@@ -428,6 +430,12 @@ impl LiveApp {
         }
         if emotes {
             self.emote_menu = !self.emote_menu;
+        }
+        if search_all {
+            self.global_search = match self.global_search.take() {
+                Some(_) => None,
+                None => Some(super::search::GlobalSearch::default()),
+            };
         }
         if focus_left || focus_right {
             if let Some((Host::Main(p), key)) = self.focused_host() {
@@ -1317,6 +1325,13 @@ impl LiveApp {
         self.emote_menu_window(ui.ctx(), &mut act);
         self.chatters_window(ui.ctx());
         self.thread_window(ui.ctx(), &mut act);
+        // a clicked match of the search across all chats: go there, its search set
+        if let Some((key, query)) = self.global_search_window(ui.ctx()) {
+            if let Some(i) = self.chat_index(&key) {
+                self.chats[i].search = Some(query.to_lowercase());
+            }
+            act.focus = Some(key);
+        }
         if let Some((group, a)) = self.usercard_window(ui.ctx()) {
             use super::usercard::CardAction;
             match a {

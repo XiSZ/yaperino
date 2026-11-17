@@ -6,7 +6,7 @@ use egui::{Key, Modifiers};
 use std::collections::HashMap;
 
 /// (id, category, name, default keys)
-pub const ACTIONS: [(&str, &str, &str, &str); 27] = [
+pub const ACTIONS: [(&str, &str, &str, &str); 28] = [
     ("settings", "Window", "open settings", "Ctrl+P"),
     ("new_tab", "Window", "new tab", "Ctrl+Shift+T"),
     ("close_tab", "Window", "close tab", "Ctrl+Shift+W"),
@@ -29,6 +29,8 @@ pub const ACTIONS: [(&str, &str, &str, &str); 27] = [
     ("popup_tab", "Window", "pop out tab", "Ctrl+Shift+N"),
     ("toggle_tabs", "Window", "toggle tab visibility", "Ctrl+U"),
     ("reopen_split", "Window", "reopen closed split", "Ctrl+G"),
+    // Chatterino's global search: every open chat at once
+    ("search_all", "Window", "search all chats", "Ctrl+Shift+F"),
     (
         "live_window",
         "Window",
