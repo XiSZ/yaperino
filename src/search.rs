@@ -18,6 +18,9 @@ struct Hit {
     color: Option<[u8; 3]>,
     platform: Platform,
     text: String,
+    /// The message itself (for its menu: Translate) and its translation, if it has one.
+    line: ChatLine,
+    note: Option<String>,
 }
 
 /// The matching messages of one chat, oldest first (case-insensitive, author or text).
@@ -28,7 +31,8 @@ fn matches(lines: &VecDeque<ChatLine>, query: &str) -> Vec<Hit> {
     }
     lines
         .iter()
-        .filter_map(|l| match l {
+        .enumerate()
+        .filter_map(|(i, l)| match l {
             ChatLine::Msg {
                 time,
                 name,
@@ -37,12 +41,21 @@ fn matches(lines: &VecDeque<ChatLine>, query: &str) -> Vec<Hit> {
                 text,
                 ..
             } if name.to_lowercase().contains(&q) || text.to_lowercase().contains(&q) => {
+                let note = lines
+                    .get(i + 1)
+                    .filter(|n| super::translate::is_note(n))
+                    .and_then(|n| match n {
+                        ChatLine::System(t) => Some(t.clone()),
+                        _ => None,
+                    });
                 Some(Hit {
                     time: time.clone(),
                     name: name.clone(),
                     color: *color,
                     platform: *platform,
                     text: text.clone(),
+                    line: l.clone(),
+                    note,
                 })
             }
             _ => None,
@@ -80,6 +93,7 @@ impl LiveApp {
         let total: usize = groups.iter().map(|(_, _, h)| h.len()).sum();
         let mut open = true;
         let mut picked: Option<(String, String)> = None;
+        let mut translate: Option<(String, ChatLine)> = None;
         let mut window = egui::Window::new("Search all chats")
             .id(egui::Id::unique("global-search"))
             .open(&mut open)
@@ -161,8 +175,29 @@ impl LiveApp {
                                 );
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
-                            if click.on_hover_text(format!("Go to {display}")).clicked() {
+                            let click = click.on_hover_text(format!(
+                                "Go to {display} (right-click: Translate, Copy)"
+                            ));
+                            if click.clicked() {
                                 picked = Some((key.clone(), gs.query.trim().to_string()));
+                            }
+                            // the message menu's Translate and Copy, here too
+                            click.context_menu(|ui| {
+                                if ui.button("Translate").clicked() {
+                                    translate = Some((key.clone(), h.line.clone()));
+                                    ui.close();
+                                }
+                                if ui.button("Copy message").clicked() {
+                                    ui.ctx().copy_text(h.text.clone());
+                                    ui.close();
+                                }
+                                if ui.button(format!("Go to {display}")).clicked() {
+                                    picked = Some((key.clone(), gs.query.trim().to_string()));
+                                    ui.close();
+                                }
+                            });
+                            if let Some(n) = &h.note {
+                                ui.label(egui::RichText::new(n).small().color(p.system));
                             }
                         }
                     }
@@ -170,6 +205,9 @@ impl LiveApp {
         });
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             open = false;
+        }
+        if let Some((group, line)) = translate {
+            self.translate_line(&group, &line, true);
         }
         if open && picked.is_none() {
             self.global_search = Some(gs);
@@ -215,5 +253,25 @@ mod tests {
         assert_eq!(hits[0].name, "Alice");
         assert_eq!(hits[1].name, "bob");
         assert!(matches(&lines, "").is_empty());
+    }
+
+    #[test]
+    fn a_match_brings_its_translation() {
+        let lines: VecDeque<ChatLine> = [
+            msg("anna", "Hallo zusammen"),
+            ChatLine::System("Translated from German: Hello everyone".into()),
+            msg("anna", "noch was"),
+            ChatLine::System("anna joined".into()),
+        ]
+        .into_iter()
+        .collect();
+        let hits = matches(&lines, "anna");
+        assert_eq!(hits.len(), 2);
+        assert_eq!(
+            hits[0].note.as_deref(),
+            Some("Translated from German: Hello everyone")
+        );
+        // an ordinary system line under a message isn't its translation
+        assert_eq!(hits[1].note, None);
     }
 }

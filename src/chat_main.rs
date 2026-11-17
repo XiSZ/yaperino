@@ -2477,17 +2477,25 @@ impl LiveApp {
             self.thread = None;
             return;
         };
-        let lines: std::collections::VecDeque<ChatLine> = self.chats[idx]
-            .lines
-            .iter()
-            .filter(|l| match l {
+        // the thread's messages, each with its translation when it has one
+        let mut lines: std::collections::VecDeque<ChatLine> = std::collections::VecDeque::new();
+        let mut after_one = false;
+        for l in &self.chats[idx].lines {
+            let in_thread = match l {
                 ChatLine::Msg { msg_id, reply, .. } => {
                     *msg_id == thread || reply.as_ref().is_some_and(|r| r.thread_id == thread)
                 }
-                _ => false,
-            })
-            .cloned()
-            .collect();
+                _ => after_one && super::translate::is_note(l),
+            };
+            if in_thread {
+                lines.push_back(l.clone());
+            }
+            after_one = in_thread && matches!(l, ChatLine::Msg { .. });
+        }
+        let count = lines
+            .iter()
+            .filter(|l| matches!(l, ChatLine::Msg { .. }))
+            .count();
         let look = self.chat_look(None);
         let channel = self.chats[idx]
             .twitch
@@ -2495,7 +2503,8 @@ impl LiveApp {
             .unwrap_or_else(|| self.chats[idx].login.clone());
         let mut open = true;
         let mut reply_now = false;
-        egui::Window::new(format!("Reply thread · {} messages", lines.len()))
+        let mut line_act: Option<crate::style::LineAction> = None;
+        egui::Window::new(format!("Reply thread · {count} messages"))
             .id(egui::Id::unique("reply-thread"))
             .open(&mut open)
             .collapsible(false)
@@ -2506,21 +2515,44 @@ impl LiveApp {
                 }
                 let h = (ui.available_height() - 36.0).max(80.0);
                 ui.allocate_ui(Vec2::new(ui.available_width(), h), |ui| {
-                    if let Some(crate::style::LineAction::UserCard(u)) =
-                        crate::style::chat_lines(ui, &lines, &self.emotes, &channel, &look)
-                    {
-                        act.usercard = Some((key.clone(), u));
-                    }
+                    line_act = crate::style::chat_lines(ui, &lines, &self.emotes, &channel, &look);
                 });
                 if ui.button("Reply in thread").clicked() {
                     reply_now = true;
                 }
             });
+        // the message menu works here as in the chat (Translate, Reply, Pin, Hide ...)
+        use crate::style::LineAction as A;
+        match line_act {
+            Some(A::UserCard(u)) => act.usercard = Some((key.clone(), u)),
+            Some(A::Moderate(m)) => act.moderate = Some((key.clone(), m)),
+            Some(A::Translate(l)) => act.translate = Some((key.clone(), l)),
+            Some(A::Hide(u)) => act.hide_user = Some((u, true)),
+            Some(A::OpenChannel(c)) => act.open_channel = Some(c),
+            Some(A::Favourite(e)) => act.favourite = Some(e),
+            Some(A::Reply(r)) => {
+                self.chats[idx].reply_to = Some(r);
+                act.focus = Some(key.clone());
+            }
+            Some(A::Add(text)) => {
+                let input = &mut self.chats[idx].input;
+                if !input.is_empty() && !input.ends_with(' ') {
+                    input.push(' ');
+                }
+                input.push_str(&text);
+                input.push(' ');
+                act.focus = Some(key.clone());
+            }
+            Some(A::Thread(_)) | None => {}
+        }
         if reply_now {
             // answer the newest message of the thread
             if let Some(ChatLine::Msg {
                 name, text, msg_id, ..
-            }) = lines.back()
+            }) = lines
+                .iter()
+                .rev()
+                .find(|l| matches!(l, ChatLine::Msg { .. }))
             {
                 self.chats[idx].reply_to = Some(crate::chat::Reply {
                     parent_id: msg_id.clone(),

@@ -278,6 +278,23 @@ fn words_of(line: &ChatLine) -> String {
     raw.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// A note this module puts under a message (so other windows can show it with it).
+pub fn is_note(line: &ChatLine) -> bool {
+    let ChatLine::System(t) = line else {
+        return false;
+    };
+    [
+        "Translated from ",
+        "Translated: ",
+        "Already in ",
+        "Translation failed: ",
+        "Auto-translate failed: ",
+        "Nothing to translate in this message",
+    ]
+    .iter()
+    .any(|p| t.starts_with(p))
+}
+
 /// Text worth translating: it has letters (not only numbers, links or punctuation).
 fn has_words(text: &str) -> bool {
     text.split_whitespace()
