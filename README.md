@@ -71,6 +71,8 @@ Modelled on Chatty's "Live Streams" list.
   and Tab completion for emotes and user names.
 - **Highlights, ignores, nicknames and custom commands**, with regex support, like Chatterino.
 - **Filters** for splits (Chatterino's filter language, e.g. `message.emote_only`).
+- **Chat history**: opening a Twitch chat shows its recent messages (from
+  recent-messages.robotty.de, like Chatterino; can be turned off).
 - **Chat logs** to files, **image upload** (paste an image into the message box), and search
   (Ctrl+F).
 - **From Moltorino**: /hide and /unhide, /chatters, /export (chat to text and JSON),

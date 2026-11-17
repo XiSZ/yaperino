@@ -191,6 +191,9 @@ pub struct Settings {
     pub source_background: bool,
     /// Collapse a user's identical message sent again right after into one line with ×N.
     pub collapse_repeats: bool,
+    /// Chatterino: load the recent chat history when a Twitch chat opens
+    /// (recent-messages.robotty.de).
+    pub load_history: bool,
     /// Settings > Hotkeys: action id -> keys, where the person changed them (empty = none).
     pub hotkeys: HashMap<String, String>,
     /// Moderation > Moderation buttons / User Timeout Buttons.
@@ -319,6 +322,7 @@ impl Default for Settings {
             hidden_users: Vec::new(),
             source_background: false,
             collapse_repeats: false,
+            load_history: true,
             hotkeys: HashMap::new(),
             mod_buttons: false,
             mod_mode: Vec::new(),
@@ -701,6 +705,8 @@ enum SideMsg {
     KickIds(String, u64, u64, u64),
     YouTubeLive(String, String),
     Line(String, ChatLine),
+    /// A Twitch chat's recent history, oldest first (recent-messages.robotty.de).
+    History(String, Vec<ChatLine>),
     YouTubeSignedIn(Result<crate::youtube_auth::YouTubeSaved, String>),
     KickSignedIn(Result<crate::kick_auth::KickSaved, String>),
     KickEmotes(String, Vec<(String, Vec<emotes::Emote>)>),
@@ -1771,10 +1777,69 @@ impl LiveApp {
             return;
         }
         if let Some(tw) = twitch {
-            self.ensure_chat().send(Cmd::Join(tw));
+            self.join_twitch(login, tw);
         }
         self.load_global_emotes();
         self.connect_other_platforms(login);
+    }
+
+    /// Joins a tab's Twitch chat and (Settings: on) loads its recent history, like Chatterino.
+    fn join_twitch(&mut self, group: &str, tw: String) {
+        self.ensure_chat().send(Cmd::Join(tw.clone()));
+        if !self.settings.load_history {
+            return;
+        }
+        let (tx, ctx, g) = (self.side_tx.clone(), self.ctx.clone(), group.to_string());
+        std::thread::spawn(move || {
+            let agent: ureq::Agent = ureq::Agent::config_builder()
+                .timeout_global(Some(std::time::Duration::from_secs(10)))
+                .build()
+                .into();
+            let url = format!("{}{tw}?limit=200", chat::HISTORY_URL);
+            let raw: Vec<String> = agent
+                .get(&url)
+                .call()
+                .ok()
+                .and_then(|mut r| r.body_mut().read_json::<serde_json::Value>().ok())
+                .and_then(|v| v.get("messages").and_then(|m| m.as_array()).cloned())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let lines = chat::history_lines(&raw);
+            if !lines.is_empty() {
+                let _ = tx.send(SideMsg::History(g, lines));
+                ctx.request_repaint();
+            }
+        });
+    }
+
+    /// Puts a chat's history in front of what arrived since, with a line between.
+    fn take_history(&mut self, group: &str, history: Vec<ChatLine>) {
+        let Some(tab) = self.chats.iter_mut().find(|t| t.login == group) else {
+            return;
+        };
+        let channel = tab.twitch.clone().unwrap_or_else(|| tab.login.clone());
+        let mut lines: VecDeque<ChatLine> = history
+            .into_iter()
+            .map(|mut l| {
+                fill_segments(&mut l, &self.emotes, &channel);
+                l
+            })
+            .collect();
+        lines.push_back(ChatLine::System(
+            "Older messages above (chat history from recent-messages.robotty.de)".into(),
+        ));
+        lines.extend(tab.lines.drain(..));
+        let limit = MESSAGE_LIMIT
+            .load(std::sync::atomic::Ordering::Relaxed)
+            .clamp(50, 5000);
+        while lines.len() > limit {
+            lines.pop_front();
+        }
+        tab.lines = lines;
     }
 
     fn close_chat(&mut self, i: usize) {
@@ -2046,7 +2111,7 @@ impl LiveApp {
                             join = true;
                         }
                         if join && !self.demo {
-                            self.ensure_chat().send(Cmd::Join(tw));
+                            self.join_twitch(&g, tw);
                         }
                     }
                     if self.chats.iter().any(|t| t.login == g) {
@@ -2063,6 +2128,7 @@ impl LiveApp {
                     self.start_readers();
                 }
                 SideMsg::Line(g, line) => self.push_to(&g, line),
+                SideMsg::History(g, history) => self.take_history(&g, history),
                 SideMsg::KickSignedIn(r) => {
                     self.settings_ui.kick_busy = false;
                     match r {

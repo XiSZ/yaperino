@@ -1256,6 +1256,10 @@ impl LiveApp {
             &mut self.settings.collapse_repeats,
             "Collapse repeated messages (the same message again from the same user shows ×N)",
         );
+        ui.checkbox(
+            &mut self.settings.load_history,
+            "Load the recent chat history when a Twitch chat opens (from recent-messages.robotty.de, like Chatterino)",
+        );
         ui.checkbox(&mut self.settings.bold_names, "Bold user names");
         ui.checkbox(
             &mut self.settings.user_colors,

@@ -485,7 +485,7 @@ fn to_line(p: &Parsed<'_>) -> Option<(Option<String>, ChatLine)> {
             Some((
                 ch,
                 ChatLine::Msg {
-                    time: clock(),
+                    time: message_time(p.tags),
                     name,
                     color,
                     text,
@@ -581,6 +581,31 @@ fn parse_color(hex: &str) -> Option<[u8; 3]> {
     Some([p(0)?, p(2)?, p(4)?])
 }
 
+/// The address of the chat history service Chatterino uses by default.
+pub const HISTORY_URL: &str = "https://recent-messages.robotty.de/api/v2/recent-messages/";
+
+/// Chat history: the raw Twitch chat lines recent-messages.robotty.de returns, as chat lines
+/// (messages, sub / raid notices, timeouts), oldest first.
+pub fn history_lines(raw: &[String]) -> Vec<ChatLine> {
+    raw.iter()
+        .filter_map(|r| parse(r))
+        .filter(|p| matches!(p.cmd, "PRIVMSG" | "USERNOTICE" | "CLEARCHAT"))
+        .filter_map(|p| to_line(&p).map(|(_, l)| l))
+        .collect()
+}
+
+/// A message's time: now, or for chat history (historical=1) when it was sent.
+fn message_time(tags: &str) -> String {
+    let sent = (tag(tags, "historical") == Some("1"))
+        .then(|| tag(tags, "tmi-sent-ts"))
+        .flatten()
+        .and_then(|t| t.parse::<i64>().ok());
+    match sent {
+        Some(ms) => clock_at(ms / 1000),
+        None => clock(),
+    }
+}
+
 pub fn clock() -> String {
     clock_at(crate::model::now_unix())
 }
@@ -674,6 +699,29 @@ mod tests {
         assert_eq!(reply_prefix_len("@Alice hi", "alice", ""), Some(7));
         assert_eq!(reply_prefix_len("@bob hi", "alice", "Alice"), None);
         assert_eq!(reply_prefix_len("hi @alice", "alice", "Alice"), None);
+    }
+
+    #[test]
+    fn chat_history_lines_keep_their_time() {
+        let raw = vec![
+            concat!(
+                "@badges=;display-name=Old;historical=1;id=h1;tmi-sent-ts=1700000000000;",
+                "user-id=9 :old!old@old.tmi.twitch.tv PRIVMSG #chan :from before"
+            )
+            .to_string(),
+            ":old!old@old.tmi.twitch.tv JOIN #chan".to_string(),
+            "not a chat line".to_string(),
+        ];
+        let lines = history_lines(&raw);
+        assert_eq!(lines.len(), 1);
+        let ChatLine::Msg {
+            name, text, time, ..
+        } = &lines[0]
+        else {
+            panic!("not a message");
+        };
+        assert_eq!((name.as_str(), text.as_str()), ("Old", "from before"));
+        assert_eq!(*time, clock_at(1_700_000_000));
     }
 
     #[test]
