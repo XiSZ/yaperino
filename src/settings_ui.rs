@@ -1359,9 +1359,37 @@ impl LiveApp {
         heading(ui, "Spellcheck", TEXT);
         ui.checkbox(
             &mut self.settings.spellcheck,
-            "Check spelling in the message box (English): misspelled words get a red line, right-click one for suggestions",
+            "Check spelling in the message box: misspelled words get a red line, right-click one for suggestions",
         );
         ui.weak("Emotes, names, @mentions, links and common chat words are left alone.");
+        // the languages: a word is right when any picked one knows it
+        ui.label(
+            "Languages (English is built in; the others are downloaded once when you pick them):",
+        );
+        ui.horizontal_wrapped(|ui| {
+            for (code, name) in crate::spell::LANGUAGES {
+                let mut on = self.settings.spell_languages.iter().any(|l| l == code);
+                let state = crate::spell::status(code);
+                let label = match (&state, on) {
+                    (Some(Ok(false)), true) => format!("{name} (downloading...)"),
+                    (Some(Err(_)), true) => format!("{name} (failed)"),
+                    _ => name.to_string(),
+                };
+                let r = ui.checkbox(&mut on, label);
+                let r = match state {
+                    Some(Err(e)) => r.on_hover_text(e),
+                    _ => r,
+                };
+                if r.changed() {
+                    if on {
+                        self.settings.spell_languages.push(code.to_string());
+                    } else {
+                        self.settings.spell_languages.retain(|l| l != code);
+                    }
+                }
+            }
+        });
+        ui.weak("Dictionaries come from github.com/wooorm/dictionaries, each under its own open licence (saved next to it in Yaperino's Dictionaries folder).");
         if !self.settings.spell_words.is_empty() {
             ui.label("Your own words (click one to remove it):");
             let mut remove = None;

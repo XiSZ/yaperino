@@ -70,11 +70,11 @@ Modelled on Chatty's "Live Streams" list.
 - **Emotes** from Twitch, 7TV, BetterTTV, FrankerFaceZ and Kick, with an emote menu (Ctrl+E)
   and Tab completion for emotes and user names. The **emote carousel** shows the suggestions
   as a row of pictures that slides with each Tab press.
-- **Spellcheck** (English) in the message box: misspelled words get a red line, right-click
+- **Spellcheck** in the message box (English built in; German, Turkish, French, Spanish and 30 more are downloaded once when picked in Settings > General): misspelled words get a red line, right-click
   one for suggestions or to add it to your own words. Emotes, names and chat words are left
   alone.
 - **Clickable links** open in your browser; hovering one shows a **preview** (the page's
-  title, description and picture, or the image itself). Settings > Chat turns previews off.
+  title, description and picture, or the image itself). Settings > General > Chat turns previews off.
 - **Translation** (from Moltorino): right-click a message > Translate puts the translation
   under it; the split menu's "Auto-translate this chat" translates new messages in other
   languages. Google by default (no key), or DeepL with your own key.

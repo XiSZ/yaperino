@@ -161,6 +161,8 @@ pub struct Settings {
     /// Spellcheck in the message box (English), and the own words added to it.
     pub spellcheck: bool,
     pub spell_words: Vec<String>,
+    /// The spellcheck's languages (spell::LANGUAGES codes; "en" is built in).
+    pub spell_languages: Vec<String>,
     /// Links in chat: a preview (title, picture) when the mouse is over one.
     pub link_previews: bool,
     /// Moltorino's translation: the language messages are translated to, the service
@@ -324,6 +326,7 @@ impl Default for Settings {
             emote_carousel: true,
             spellcheck: true,
             spell_words: Vec::new(),
+            spell_languages: vec!["en".into()],
             link_previews: true,
             translate_to: "en".into(),
             translate_provider: "Google".into(),
@@ -3951,7 +3954,21 @@ fn shot_clicks(frame: u32, raw: &mut egui::RawInput) {
         };
         let pos = Pos2::new(x, y);
         raw.events.push(egui::Event::PointerMoved(pos));
-        // "x,y hover": only move the mouse there (tooltips, previews)
+        // "x,y hover": only move the mouse there (tooltips, previews); "x,y scroll=-400":
+        // turn the mouse wheel there
+        if let Some(n) = c.split("scroll=").nth(1) {
+            if frame == start {
+                let dy = n.trim().parse::<f32>().unwrap_or(0.0);
+                raw.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::Vec2::new(0.0, dy),
+                    modifiers: egui::Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Wheel,
+                });
+            }
+            continue;
+        }
         if c.contains("hover") {
             continue;
         }

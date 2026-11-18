@@ -1867,11 +1867,12 @@ impl LiveApp {
         let mut top = header_rect.bottom();
         // spellcheck: the dictionary (once loaded) and which words of the message are
         // emotes, chatters or own words
-        let spell_dict = if self.settings.spellcheck {
-            crate::spell::dictionary()
+        let spell_dicts = if self.settings.spellcheck {
+            crate::spell::dictionaries(&self.settings.spell_languages)
         } else {
             None
         };
+        let spell_dict = spell_dicts.as_ref();
         let spell_known = match spell_dict {
             Some(_) => self.spell_known_words(idx),
             None => HashSet::new(),

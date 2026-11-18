@@ -36,7 +36,7 @@ the sample data only (never real channels or accounts). See PUBLISHING.md > The 
 
 ```
 cargo build                 # target\debug\live-streams.exe (the binary keeps this old name)
-cargo test                  # 67 unit tests; 13 network tests are #[ignore]
+cargo test                  # 68 unit tests; 14 network tests are #[ignore]
 cargo build --release       # what a release ships, renamed Yaperino.exe
 cargo fmt                   # rustfmt's default style; CI fails on `cargo fmt --check`
 ```
@@ -75,7 +75,7 @@ and exits. It never loads sign-ins, never saves settings and never touches the n
 | `LIVE_STREAMS_SHOT_GROUPS=1` | with `_MANY_TABS`: two tab groups, "FPS" collapsed |
 | `LIVE_STREAMS_SHOT_AUTOMOD=1` | with `_MOD=1`: two held AutoMod messages (one waiting, one denied) and a pinned message bar |
 | `LIVE_STREAMS_SHOT_UNBAN=1` / `_MODLOGS=1` | the unban requests window / the mod log window, with sample data |
-| `LIVE_STREAMS_SHOT_CLICK="x,y;x,y right;..."` | real mouse clicks (one every 100 frames from frame 300) before the picture, to check what a click does (e.g. `110,152` opens a usercard with `_CHATS`); `x,y hover` only moves the mouse there |
+| `LIVE_STREAMS_SHOT_CLICK="x,y;x,y right;..."` | real mouse clicks (one every 100 frames from frame 300) before the picture, to check what a click does (e.g. `110,152` opens a usercard with `_CHATS`); `x,y hover` only moves the mouse there, `x,y scroll=-700` turns the wheel |
 | `LIVE_STREAMS_SHOT_LINK=<url>` | a sample message with that link (hover it with `_CLICK="250,278 hover"` for its preview; the preview asks the real site) |
 | `LIVE_STREAMS_SHOT_CAROUSEL=<text>` | that text typed in the first chat (e.g. `:ca` for the emote carousel; with `LIVE_STREAMS_REAL=1` for real emotes) |
 | `LIVE_STREAMS_SHOT_MANY_TABS=1` | 21 sample tabs: more than fit, to check wrapping (top/bottom) and scrolling (left/right) |
@@ -109,7 +109,7 @@ Network tests: `LIVE_STREAMS_TEST_LOGIN` (Chatterino login-info format), then
 | `emotes.rs` | Twitch / 7TV / BTTV / FFZ / Kick emotes and badges |
 | `translate.rs` (child of app) | message translation: Google (keyless) or DeepL (own key), `parse_google` / `parse_deepl`, the throttled queue (`Translator`), message menu > Translate, split menu > Auto-translate |
 | `namehistory.rs` | the usercard's previous names: logs.ivr.fi, fallback logs.zonian.dev, by Twitch user id; cached for the session |
-| `spell.rs` | spellcheck of the message box: the built-in English Hunspell dictionary (`assets/dictionaries`, loaded in the background), `misspelled` (what chat leaves alone), `suggestions` |
+| `spell.rs` | spellcheck of the message box: `LANGUAGES`, `dictionaries` (English built in from `assets/dictionaries`, others downloaded once from wooorm/dictionaries into Dictionaries/, all loaded in the background), `Dicts`, `misspelled` (what chat leaves alone), `suggestions` |
 | `linkpreview.rs` | links in chat: `link_of` (which words are links), the hover preview (`ui`, fetched from the site in the background, cached), `from_html` (Open Graph / title) |
 | `paths.rs` | Yaperino's folders on each system (`app_dir`, `local_dir`) |
 | `streamlink.rs`, `browser.rs`, `install.rs`, `logo.rs`, `demo.rs` | Streamlink, open URLs (`open` / `xdg-open` off Windows), per-user install/uninstall (Windows), drawn logo, sample data |
