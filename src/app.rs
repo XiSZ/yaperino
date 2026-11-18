@@ -611,6 +611,8 @@ pub struct LiveApp {
     mod_in: HashSet<String>,
     /// The open usercard (Chatterino's user popup), if any.
     usercard: Option<usercard::UserCard>,
+    /// A usercard's messages popped out into their own window.
+    user_log: Option<usercard::UserLog>,
     /// The open reply thread: (tab key, the thread's first message id).
     thread: Option<(String, String)>,
     /// Search across all chats (Ctrl+Shift+F), when open.
@@ -832,6 +834,7 @@ impl LiveApp {
             chat_name: None,
             mod_in: HashSet::new(),
             usercard: None,
+            user_log: None,
             thread: None,
             global_search: None,
             eventsub: None,

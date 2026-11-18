@@ -1398,6 +1398,7 @@ impl LiveApp {
             }
             act.focus = Some(key);
         }
+        self.user_log_window(ui.ctx());
         if let Some((group, a)) = self.usercard_window(ui.ctx()) {
             use super::usercard::CardAction;
             match a {

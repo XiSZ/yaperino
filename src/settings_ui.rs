@@ -142,6 +142,8 @@ pub struct SettingsUi {
     /// Settings backup: the last result, and a file to import.
     pub backup_message: String,
     pub backup_import: String,
+    /// Spellcheck > Add language: the search text.
+    pub lang_search: String,
     /// About > Open source software: rows whose license is shown.
     pub shown_licenses: Vec<usize>,
     /// The sub-tab of pages with tabs (Highlights, Ignores, Live Notifications).
@@ -1362,34 +1364,103 @@ impl LiveApp {
             "Check spelling in the message box: misspelled words get a red line, right-click one for suggestions",
         );
         ui.weak("Emotes, names, @mentions, links and common chat words are left alone.");
-        // the languages: a word is right when any picked one knows it
-        ui.label(
-            "Languages (English is built in; the others are downloaded once when you pick them):",
-        );
+        // the languages, as chips: a word is right when any of them knows it
+        ui.add_space(4.0);
+        ui.label("Languages");
+        let p = crate::style::theme::c();
+        let name_of = |code: &str| {
+            crate::spell::LANGUAGES
+                .iter()
+                .find(|(c, _)| *c == code)
+                .map_or(code.to_string(), |(_, n)| n.to_string())
+        };
+        let mut remove: Option<String> = None;
+        let mut add: Option<String> = None;
         ui.horizontal_wrapped(|ui| {
-            for (code, name) in crate::spell::LANGUAGES {
-                let mut on = self.settings.spell_languages.iter().any(|l| l == code);
-                let state = crate::spell::status(code);
-                let label = match (&state, on) {
-                    (Some(Ok(false)), true) => format!("{name} (downloading...)"),
-                    (Some(Err(_)), true) => format!("{name} (failed)"),
-                    _ => name.to_string(),
+            ui.spacing_mut().item_spacing = Vec2::new(6.0, 6.0);
+            for code in self.settings.spell_languages.clone() {
+                let state = crate::spell::status(&code);
+                let (mark, tip) = match &state {
+                    Some(Ok(false)) => ("⟳", "Downloading...".to_string()),
+                    Some(Err(e)) => ("⚠", format!("Couldn't load it: {e}")),
+                    Some(Ok(true)) => ("✔", "Ready".to_string()),
+                    None => ("", "Loaded once you type".to_string()),
                 };
-                let r = ui.checkbox(&mut on, label);
-                let r = match state {
-                    Some(Err(e)) => r.on_hover_text(e),
-                    _ => r,
+                let fill = if matches!(state, Some(Err(_))) {
+                    Color32::from_rgb(0xe8, 0x48, 0x48).gamma_multiply(0.25)
+                } else {
+                    p.accent.gamma_multiply(0.22)
                 };
-                if r.changed() {
-                    if on {
-                        self.settings.spell_languages.push(code.to_string());
-                    } else {
-                        self.settings.spell_languages.retain(|l| l != code);
-                    }
-                }
+                egui::Frame::new()
+                    .fill(fill)
+                    .corner_radius(12)
+                    .inner_margin(egui::Margin {
+                        left: 10,
+                        right: 4,
+                        top: 3,
+                        bottom: 3,
+                    })
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            ui.label(egui::RichText::new(name_of(&code)).color(p.strong_text))
+                                .on_hover_text(&tip);
+                            if !mark.is_empty() {
+                                ui.label(egui::RichText::new(mark).small().color(p.accent))
+                                    .on_hover_text(&tip);
+                            }
+                            let x = ui.add(
+                                egui::Button::new(egui::RichText::new("✕").small()).frame(false),
+                            );
+                            if x.on_hover_text("Remove").clicked() {
+                                remove = Some(code.clone());
+                            }
+                        });
+                    });
             }
+            // + Add language: a searchable list of the others
+            let search = &mut self.settings_ui.lang_search;
+            let picked = &self.settings.spell_languages;
+            ui.menu_button(
+                egui::RichText::new("+ Add language").color(p.accent),
+                |ui| {
+                    ui.set_min_width(220.0);
+                    ui.set_max_width(240.0);
+                    ui.add(
+                        egui::TextEdit::singleline(search)
+                            .hint_text("Search languages...")
+                            .desired_width(220.0),
+                    )
+                    .request_focus();
+                    let q = search.trim().to_lowercase();
+                    egui::ScrollArea::vertical()
+                        .max_height(260.0)
+                        .show(ui, |ui| {
+                            for (code, name) in crate::spell::LANGUAGES {
+                                if picked.iter().any(|l| l == code)
+                                    || !(q.is_empty()
+                                        || name.to_lowercase().contains(&q)
+                                        || code.to_lowercase().contains(&q))
+                                {
+                                    continue;
+                                }
+                                if ui.button(*name).clicked() {
+                                    add = Some(code.to_string());
+                                    ui.close();
+                                }
+                            }
+                        });
+                },
+            );
         });
-        ui.weak("Dictionaries come from github.com/wooorm/dictionaries, each under its own open licence (saved next to it in Yaperino's Dictionaries folder).");
+        if let Some(code) = remove {
+            self.settings.spell_languages.retain(|l| *l != code);
+        }
+        if let Some(code) = add {
+            self.settings.spell_languages.push(code);
+            self.settings_ui.lang_search.clear();
+        }
+        ui.weak("English is built in; other languages are downloaded once (from github.com/wooorm/dictionaries, each under its own open licence) and kept in Yaperino's Dictionaries folder.");
         if !self.settings.spell_words.is_empty() {
             ui.label("Your own words (click one to remove it):");
             let mut remove = None;

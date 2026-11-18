@@ -195,6 +195,9 @@ impl LiveApp {
             .unwrap_or_else(|| card.name.clone());
         let mut open = true;
         let mut action: Option<CardAction> = None;
+        // "Pop out" on the chat log / mod log: their own window
+        let mut pop_messages = false;
+        let mut pop_mod_log = false;
         let mut window = egui::Window::new("usercard")
             .id(egui::Id::unique("usercard"))
             .title_bar(false)
@@ -504,21 +507,17 @@ impl LiveApp {
                     }
                     if !mod_log.is_empty() {
                         ui.add_space(8.0);
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new("MOD LOG")
-                                    .small()
-                                    .strong()
-                                    .color(p.tab_text),
-                            );
-                            pill(ui, &mod_log.len().to_string(), p.shade(30), p.text);
-                        });
+                        pop_mod_log |= section_header(ui, "MOD LOG", mod_log.len());
                         egui::Frame::new()
                             .fill(p.shade(10))
                             .corner_radius(10)
                             .inner_margin(egui::Margin::symmetric(10, 8))
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
+                                egui::ScrollArea::vertical()
+                                    .id_salt("usercard-modlog")
+                                    .max_height(140.0)
+                                    .show(ui, |ui| {
                                 for e in &mod_log {
                                     let when = chrono::DateTime::from_timestamp(e.time, 0)
                                         .map(|t| {
@@ -536,14 +535,16 @@ impl LiveApp {
                                         ui.label(egui::RichText::new(e.describe()).small());
                                     });
                                 }
+                                    });
                             });
                     }
                     // their messages
                     ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("MESSAGES HERE").small().strong().color(p.tab_text));
-                        pill(ui, &session.len().to_string(), p.shade(30), p.text);
-                    });
+                    pop_messages |= section_header(
+                        ui,
+                        "MESSAGES HERE",
+                        session.len() + card.logs.len(),
+                    );
                     egui::Frame::new()
                         .fill(p.shade(10))
                         .corner_radius(10)
@@ -593,6 +594,17 @@ impl LiveApp {
         if action.is_some() && !matches!(action, Some(CardAction::Moderate(_))) {
             open = false;
         }
+        if pop_messages {
+            self.user_log = Some(UserLog {
+                group: card.group.clone(),
+                name: card.name.clone(),
+                logs: card.logs.clone(),
+                filter: String::new(),
+            });
+        }
+        if pop_mod_log {
+            self.open_mod_log(&card.group, card.name.clone());
+        }
         let group = card.group.clone();
         if open {
             self.usercard = Some(card);
@@ -603,6 +615,114 @@ impl LiveApp {
 
 /// The usercard's width.
 const CARD_W: f32 = 440.0;
+
+/// A usercard's messages in their own window (the card's "Pop out"): the chat-log lines
+/// read when it opened, then this session's messages, as they come.
+pub struct UserLog {
+    pub group: String,
+    pub name: String,
+    pub logs: Vec<String>,
+    pub filter: String,
+}
+
+impl LiveApp {
+    /// The popped-out messages window: a filter, and everything scrollable.
+    pub(super) fn user_log_window(&mut self, ctx: &egui::Context) {
+        let Some(w) = self.user_log.as_mut() else {
+            return;
+        };
+        let p = crate::style::theme::c();
+        // this session's messages, now
+        let session: Vec<(String, String)> = self
+            .chats
+            .iter()
+            .find(|t| t.login == w.group)
+            .map(|t| {
+                t.lines
+                    .iter()
+                    .filter_map(|l| match l {
+                        ChatLine::Msg {
+                            name, time, text, ..
+                        } if name.eq_ignore_ascii_case(&w.name) => {
+                            Some((time.clone(), text.clone()))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let channel = self
+            .chats
+            .iter()
+            .find(|t| t.login == w.group)
+            .map_or(w.group.clone(), |t| t.display.clone());
+        let mut open = true;
+        egui::Window::new(format!("{}'s messages in {channel}", w.name))
+            .id(egui::Id::unique("usercard-messages"))
+            .open(&mut open)
+            .default_size([460.0, 420.0])
+            .resizable(true)
+            .collapsible(false)
+            .show(ctx, |ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut w.filter)
+                        .hint_text("Filter their messages")
+                        .desired_width(f32::INFINITY),
+                );
+                let q = w.filter.trim().to_lowercase();
+                let keep = |t: &str| q.is_empty() || t.to_lowercase().contains(&q);
+                let n = w.logs.iter().filter(|l| keep(l)).count()
+                    + session.iter().filter(|(_, t)| keep(t)).count();
+                ui.weak(format!("{n} messages (chat logs, then this session)"));
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .id_salt("usercard-messages-list")
+                    .auto_shrink([false, false])
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        for l in w.logs.iter().filter(|l| keep(l)) {
+                            ui.label(egui::RichText::new(l).small().color(p.tab_text));
+                        }
+                        for (time, text) in session.iter().filter(|(_, t)| keep(t)) {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(egui::RichText::new(time).small().color(p.tab_text));
+                                ui.label(egui::RichText::new(text).color(p.text));
+                            });
+                        }
+                        if n == 0 {
+                            ui.weak("Nothing here.");
+                        }
+                    });
+            });
+        if !open {
+            self.user_log = None;
+        }
+    }
+}
+
+/// A usercard section's title with its count, and "Pop out" on the right; true when clicked.
+fn section_header(ui: &mut egui::Ui, title: &str, count: usize) -> bool {
+    let p = crate::style::theme::c();
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(title)
+                .small()
+                .strong()
+                .color(p.tab_text),
+        );
+        pill(ui, &count.to_string(), p.shade(30), p.text);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add(
+                egui::Button::new(egui::RichText::new("⬈ Pop out").small().color(p.accent))
+                    .frame(false),
+            )
+            .on_hover_text("Open in its own window (stays open, keeps scrolling)")
+            .clicked()
+        })
+        .inner
+    })
+    .inner
+}
 
 /// Starts loading a Twitch user's earlier names (by user id) for the card.
 fn start_names(card: &mut UserCard, user_id: &str, ctx: &egui::Context) {
