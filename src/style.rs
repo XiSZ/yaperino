@@ -686,12 +686,23 @@ pub struct ChatLook {
     pub hidden: std::collections::HashSet<String>,
     pub bold_names: bool,
     pub user_colors: bool,
+    /// Hovering a link shows its preview (linkpreview.rs).
+    pub link_previews: bool,
 }
 
 const MENTION_BG: Color32 = Color32::from_rgb(0x4b, 0x28, 0x2c);
 
+/// Something clickable in a message's text: a #channel or a web link.
+#[derive(Clone)]
+pub enum Link {
+    Channel(String),
+    Url(String),
+}
+
 /// What a chat line's menu or buttons asked for (emote right-click, moderation).
 pub enum LineAction {
+    /// A link in a message was clicked: open it in the browser.
+    OpenUrl(String),
     /// Timeout, ban, unban or delete (moderation buttons, message menu > Moderation).
     Moderate(crate::moderation::ModAction),
     /// Put this text into the message box.
@@ -841,7 +852,7 @@ pub fn chat_lines(
                     ));
                 let mut hits: Vec<(egui::Rect, emotes::Emote)> = Vec::new();
                 let mut mod_hits: Vec<(egui::Rect, crate::moderation::ModAction)> = Vec::new();
-                let mut chan_hits: Vec<(egui::Rect, String)> = Vec::new();
+                let mut chan_hits: Vec<(egui::Rect, Link)> = Vec::new();
                 let mut name_hits: Vec<(egui::Rect, UserRef)> = Vec::new();
                 let mut reply_hits: Vec<(egui::Rect, String)> = Vec::new();
                 let r = frame.show(ui, |ui| {
@@ -895,7 +906,10 @@ pub fn chat_lines(
                             .find(|(r, _)| r.contains(p))
                             .map(|(_, c)| c.clone())
                     }) {
-                        insert = Some(LineAction::OpenChannel(c));
+                        insert = Some(match c {
+                            Link::Channel(c) => LineAction::OpenChannel(c),
+                            Link::Url(u) => LineAction::OpenUrl(u),
+                        });
                     } else if let Some(u) = at.and_then(|p| {
                         name_hits
                             .iter()
@@ -921,6 +935,20 @@ pub fn chat_lines(
                 {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
+                // a hovered link: its preview (title, picture) next to the pointer
+                let hovered_url = menu.hover_pos().and_then(|p| {
+                    chan_hits.iter().find_map(|(r, l)| match l {
+                        Link::Url(u) if r.contains(p) => Some(u.clone()),
+                        _ => None,
+                    })
+                });
+                let menu = match hovered_url {
+                    Some(url) if look.link_previews => {
+                        menu.on_hover_ui_at_pointer(|ui| crate::linkpreview::ui(ui, &url))
+                    }
+                    Some(url) => menu.on_hover_text_at_pointer(format!("Open {url}")),
+                    None => menu,
+                };
                 if menu.secondary_clicked() {
                     let hit = menu.interact_pointer_pos().and_then(|p| {
                         hits.iter()
@@ -1160,7 +1188,7 @@ fn draw_line(
     emote_h: f32,
     hits: &mut Vec<(egui::Rect, emotes::Emote)>,
     mod_hits: &mut Vec<(egui::Rect, crate::moderation::ModAction)>,
-    chan_hits: &mut Vec<(egui::Rect, String)>,
+    chan_hits: &mut Vec<(egui::Rect, Link)>,
     name_hits: &mut Vec<(egui::Rect, UserRef)>,
     reply_hits: &mut Vec<(egui::Rect, String)>,
 ) {
@@ -1434,16 +1462,22 @@ fn text_with_channels(
     t: &str,
     font: &egui::FontId,
     color: Color32,
-    chan_hits: &mut Vec<(egui::Rect, String)>,
+    chan_hits: &mut Vec<(egui::Rect, Link)>,
 ) {
-    if !t.contains('#') {
+    if !t.contains('#') && !t.contains("http") && !t.contains("www.") {
         ui.label(RichText::new(t).font(font.clone()).color(color));
         return;
     }
     let mut plain = String::new();
     for word in t.split_inclusive(' ') {
         let w = word.trim_end();
-        if let Some(name) = channel_word(w) {
+        // a #channel, or a web link (opened in the browser, previewed on hover)
+        let link = channel_word(w)
+            .map(|n| (Link::Channel(n.to_string()), theme::c().accent))
+            .or_else(|| {
+                crate::linkpreview::link_of(w).map(|u| (Link::Url(u), ui.visuals().hyperlink_color))
+            });
+        if let Some((link, link_color)) = link {
             if !plain.is_empty() {
                 ui.label(
                     RichText::new(std::mem::take(&mut plain))
@@ -1454,11 +1488,13 @@ fn text_with_channels(
             let r = ui.label(
                 RichText::new(w)
                     .font(font.clone())
-                    .color(theme::c().accent)
+                    .color(link_color)
                     .underline(),
             );
-            chan_hits.push((r.rect, name.to_string()));
-            r.on_hover_text(format!("Open #{name}"));
+            if let Link::Channel(name) = &link {
+                r.clone().on_hover_text(format!("Open #{name}"));
+            }
+            chan_hits.push((r.rect, link));
             plain.push_str(&word[w.len()..]);
         } else {
             plain.push_str(word);

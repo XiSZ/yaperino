@@ -161,6 +161,8 @@ pub struct Settings {
     /// Spellcheck in the message box (English), and the own words added to it.
     pub spellcheck: bool,
     pub spell_words: Vec<String>,
+    /// Links in chat: a preview (title, picture) when the mouse is over one.
+    pub link_previews: bool,
     /// Moltorino's translation: the language messages are translated to, the service
     /// ("Google", no key needed, or "DeepL" with your own key, never in backups) and the
     /// tabs whose new messages are translated as they arrive.
@@ -322,6 +324,7 @@ impl Default for Settings {
             emote_carousel: true,
             spellcheck: true,
             spell_words: Vec::new(),
+            link_previews: true,
             translate_to: "en".into(),
             translate_provider: "Google".into(),
             deepl_key: String::new(),
@@ -3948,6 +3951,10 @@ fn shot_clicks(frame: u32, raw: &mut egui::RawInput) {
         };
         let pos = Pos2::new(x, y);
         raw.events.push(egui::Event::PointerMoved(pos));
+        // "x,y hover": only move the mouse there (tooltips, previews)
+        if c.contains("hover") {
+            continue;
+        }
         raw.events.push(egui::Event::PointerButton {
             pos,
             button,

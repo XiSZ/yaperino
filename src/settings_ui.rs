@@ -1322,6 +1322,10 @@ impl LiveApp {
             "Show the message source as a platform-coloured background",
         );
         ui.checkbox(
+            &mut self.settings.link_previews,
+            "Link previews: hovering a link shows its title and picture (Yaperino asks the link's website)",
+        );
+        ui.checkbox(
             &mut self.settings.collapse_repeats,
             "Collapse repeated messages (the same message again from the same user shows ×N)",
         );

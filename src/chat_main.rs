@@ -763,6 +763,7 @@ impl LiveApp {
                 .collect(),
             bold_names: self.settings.bold_names,
             user_colors: self.settings.user_colors,
+            link_previews: self.settings.link_previews,
         }
     }
 
@@ -1966,6 +1967,7 @@ impl LiveApp {
             Some(crate::style::LineAction::Translate(l)) => {
                 act.translate = Some((key.to_string(), l))
             }
+            Some(crate::style::LineAction::OpenUrl(u)) => crate::browser::open_url(&u),
             None => {}
         }
         // a click anywhere in the messages focuses the split. Read from the input, not with
@@ -2543,6 +2545,7 @@ impl LiveApp {
                 input.push(' ');
                 act.focus = Some(key.clone());
             }
+            Some(A::OpenUrl(u)) => crate::browser::open_url(&u),
             Some(A::Thread(_)) | None => {}
         }
         if reply_now {

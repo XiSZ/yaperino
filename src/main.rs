@@ -19,6 +19,7 @@ mod fetch;
 mod hotkeys;
 mod install;
 mod kick_auth;
+mod linkpreview;
 mod logo;
 mod model;
 mod moderation;

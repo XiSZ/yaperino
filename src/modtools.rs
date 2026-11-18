@@ -480,6 +480,27 @@ impl LiveApp {
         }
         let ch = self.twitch_of(&first);
         let env = |k: &str| std::env::var(k).is_ok();
+        // LIVE_STREAMS_SHOT_LINK=<url>: a sample message with that link (link previews)
+        if let Ok(url) = std::env::var("LIVE_STREAMS_SHOT_LINK") {
+            self.push_to(
+                &first,
+                ChatLine::Msg {
+                    time: chrono::Local::now().format("%H:%M").to_string(),
+                    name: "link_fan".into(),
+                    color: Some([0x9b, 0x59, 0xb6]),
+                    text: format!("look at this {url} nice"),
+                    action: false,
+                    own: false,
+                    emotes: Vec::new(),
+                    badges: Vec::new(),
+                    segs: Vec::new(),
+                    platform: Platform::Twitch,
+                    msg_id: String::new(),
+                    user_id: "1".into(),
+                    reply: None,
+                },
+            );
+        }
         if env("LIVE_STREAMS_SHOT_AUTOMOD") {
             let held = |user: &str, text: &str, reason: &str, status: &str| {
                 ChatLine::AutoMod(Box::new(crate::chat::HeldMessage {
