@@ -109,17 +109,21 @@ pub fn status(code: &str) -> Option<Result<bool, String>> {
 
 /// A language's dictionary: built in (English), from Yaperino's folder, or downloaded there.
 fn load(code: &str) -> Result<spellbook::Dictionary, String> {
+    load_into(code, &crate::paths::app_dir_or_here().join("Dictionaries"))
+}
+
+/// A language's dictionary, kept in (or downloaded into) `dir`.
+fn load_into(code: &str, dir: &std::path::Path) -> Result<spellbook::Dictionary, String> {
     if code == "en" {
         return spellbook::Dictionary::new(EN_AFF, EN_DIC).map_err(|e| e.to_string());
     }
     if !LANGUAGES.iter().any(|(c, _)| *c == code) {
         return Err(format!("unknown language {code}"));
     }
-    let dir = crate::paths::app_dir_or_here().join("Dictionaries");
     let aff = dir.join(format!("{code}.aff"));
     let dic = dir.join(format!("{code}.dic"));
     if !(aff.exists() && dic.exists()) {
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         for (file, path) in [("index.aff", &aff), ("index.dic", &dic)] {
             let body = download(&format!("{SOURCE}{code}/{file}"))?;
             // written whole or not at all
@@ -132,7 +136,111 @@ fn load(code: &str) -> Result<spellbook::Dictionary, String> {
         }
     }
     let read = |p: &std::path::Path| std::fs::read_to_string(p).map_err(|e| e.to_string());
-    spellbook::Dictionary::new(&read(&aff)?, &read(&dic)?).map_err(|e| e.to_string())
+    let (aff, dic) = tidy(&read(&aff)?, &read(&dic)?);
+    spellbook::Dictionary::new(&aff, &dic).map_err(|e| e.to_string())
+}
+
+/// Directives whose value is one flag (shifted with the rest, see `tidy`).
+const FLAG_DIRECTIVES: &[&str] = &[
+    "COMPOUNDFLAG",
+    "COMPOUNDBEGIN",
+    "COMPOUNDMIDDLE",
+    "COMPOUNDEND",
+    "COMPOUNDLAST",
+    "ONLYINCOMPOUND",
+    "COMPOUNDPERMITFLAG",
+    "COMPOUNDFORBIDFLAG",
+    "NEEDAFFIX",
+    "CIRCUMFIX",
+    "FORBIDDENWORD",
+    "KEEPCASE",
+    "NOSUGGEST",
+    "WARN",
+    "SUBSTANDARD",
+    "FORCEUCASE",
+];
+
+/// Some dictionaries need tidying before spellbook reads them (Hunspell itself is lenient):
+/// numeric flags that start at 0 (Turkish) are moved up by one everywhere, and word-list
+/// lines whose flags aren't numbers (Danish "A/S", where the slash is part of the word) are
+/// left out.
+fn tidy(aff: &str, dic: &str) -> (String, String) {
+    let tokens = |l: &str| l.split_whitespace().map(String::from).collect::<Vec<_>>();
+    let numeric = aff.lines().any(|l| tokens(l) == ["FLAG", "num"]);
+    if !numeric {
+        return (aff.to_string(), dic.to_string());
+    }
+    let zero = aff.lines().any(|l| {
+        let t = tokens(l);
+        matches!(t.first().map(String::as_str), Some("SFX" | "PFX"))
+            && t.get(1).is_some_and(|f| f == "0")
+    });
+    let by = u32::from(zero);
+    // "3,10" -> "4,11" (or the same when nothing moves); None when it isn't a flag list
+    let shift = |flags: &str| -> Option<String> {
+        flags
+            .split(',')
+            .map(|n| n.trim().parse::<u32>().ok().map(|v| (v + by).to_string()))
+            .collect::<Option<Vec<_>>>()
+            .map(|v| v.join(","))
+    };
+    let aff = if zero {
+        aff.lines()
+            .map(|l| {
+                let mut t = tokens(l);
+                match t.first().map(String::as_str) {
+                    Some("SFX" | "PFX") if t.len() > 2 => {
+                        if let Some(f) = shift(&t[1]) {
+                            t[1] = f;
+                        }
+                        // the affix's own continuation flags: "ler/3,4"
+                        if let Some((a, f)) = t.get(3).and_then(|x| x.split_once('/')) {
+                            if let Some(f) = shift(f) {
+                                t[3] = format!("{a}/{f}");
+                            }
+                        }
+                        t.join(" ")
+                    }
+                    Some(d) if FLAG_DIRECTIVES.contains(&d) && t.len() == 2 => {
+                        if let Some(f) = shift(&t[1]) {
+                            t[1] = f;
+                        }
+                        t.join(" ")
+                    }
+                    _ => l.to_string(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        aff.to_string()
+    };
+    let mut out = String::with_capacity(dic.len());
+    for (i, line) in dic.lines().enumerate() {
+        if i > 0 {
+            let (entry, rest) = line.split_at(line.find(char::is_whitespace).unwrap_or(line.len()));
+            // the flags start after the last slash that isn't escaped (\/)
+            let slash = entry
+                .char_indices()
+                .rev()
+                .find(|(p, c)| *c == '/' && !entry[..*p].ends_with('\\'))
+                .map(|(p, _)| p);
+            if let Some(p) = slash {
+                let Some(flags) = shift(&entry[p + 1..]) else {
+                    continue;
+                };
+                out.push_str(&entry[..p]);
+                out.push('/');
+                out.push_str(&flags);
+                out.push_str(rest);
+                out.push('\n');
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    (aff, out)
 }
 
 fn download(url: &str) -> Result<String, String> {
@@ -288,6 +396,75 @@ mod tests {
         assert!(misspelled(&de, "Hallo zusammen, wie geht es euch ", &none).is_empty());
         assert_eq!(misspelled(&de, "Hallo zusamen ", &none), [6..13]);
         assert!(suggestions(&de, "zusamen").iter().any(|s| s == "zusammen"));
+    }
+
+    #[test]
+    fn odd_dictionaries_are_tidied() {
+        // Turkish style: numeric flags from 0
+        let aff = "SET UTF-8\nFLAG num\n\nSFX 0 N 1\nSFX 0 0 de .\nSFX 1 N 1\nSFX 1 0 ler/0 .\n";
+        let dic = "2\nev/0,1\nkitap/1\n";
+        let (a, d) = tidy(aff, dic);
+        assert!(
+            a.contains("SFX 1 N 1") && a.contains("SFX 1 0 de .") && a.contains("SFX 2 0 ler/1 .")
+        );
+        assert_eq!(d, "2\nev/1,2\nkitap/2\n");
+        // Danish style: a slash inside a word, numbers from 1 (nothing moves)
+        let aff = "FLAG num\nSFX 1 Y 1\nSFX 1 0 e .\n";
+        let dic = "3\nhus/1\n\"A/S\"\nbil\n";
+        let (a, d) = tidy(aff, dic);
+        assert_eq!(a, aff);
+        assert_eq!(d, "3\nhus/1\nbil\n");
+        // ordinary dictionaries are left alone
+        assert_eq!(
+            tidy("SET UTF-8\n", "1\nword/AB\n"),
+            ("SET UTF-8\n".into(), "1\nword/AB\n".into())
+        );
+        // and they load
+        let (a, d) = tidy(
+            "SET UTF-8\nFLAG num\nSFX 0 Y 1\nSFX 0 0 de .\n",
+            "1\nev/0\n",
+        );
+        let tr = Dicts(vec![Arc::new(spellbook::Dictionary::new(&a, &d).unwrap())]);
+        assert!(tr.check("ev") && tr.check("evde") && !tr.check("evle"));
+    }
+
+    /// Network: Turkish (its flags start at 0, see `tidy`) checks words.
+    /// `cargo test -- --ignored turkish_checks_words` (YAP_DICT_DIR for the folder)
+    #[test]
+    #[ignore]
+    fn turkish_checks_words() {
+        let dir = std::env::var("YAP_DICT_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir().join("yaperino-dicts"));
+        let tr = Dicts(vec![Arc::new(load_into("tr", &dir).expect("Turkish"))]);
+        let none = |_: &str| false;
+        assert!(misspelled(&tr, "Merhaba arkadaşlar, nasılsınız bugün ", &none).is_empty());
+        assert_eq!(misspelled(&tr, "Merhaba arkadaslar ", &none), [8..18]);
+        assert!(suggestions(&tr, "arkadaslar")
+            .iter()
+            .any(|s| s == "arkadaşlar"));
+    }
+
+    /// Network: every offered language downloads and loads (into YAP_DICT_DIR, else a
+    /// temporary folder). `cargo test -- --ignored every_language_loads --nocapture`
+    #[test]
+    #[ignore]
+    fn every_language_loads() {
+        let dir = std::env::var("YAP_DICT_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir().join("yaperino-dicts"));
+        let mut failed = Vec::new();
+        for (code, name) in LANGUAGES {
+            let t = std::time::Instant::now();
+            match load_into(code, &dir) {
+                Ok(_) => println!("{code} {name}: ok ({:.1}s)", t.elapsed().as_secs_f32()),
+                Err(e) => {
+                    println!("{code} {name}: FAILED {e}");
+                    failed.push(*code);
+                }
+            }
+        }
+        assert!(failed.is_empty(), "failed: {failed:?}");
     }
 
     #[test]

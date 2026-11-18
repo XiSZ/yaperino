@@ -400,7 +400,9 @@ impl LiveApp {
                     .id_salt("settings-page")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        ui.set_max_width(640.0);
+                        // at most 640 wide, never wider than the window shows (set_max_width
+                        // alone can widen it: text then ran off the right edge, unwrapped)
+                        ui.set_max_width(ui.available_width().min(640.0));
                         match self.settings_ui.page {
                             Page::General => self.general_page(ui),
                             Page::Accounts => self.accounts_page(ui),
@@ -1391,32 +1393,9 @@ impl LiveApp {
                 } else {
                     p.accent.gamma_multiply(0.22)
                 };
-                egui::Frame::new()
-                    .fill(fill)
-                    .corner_radius(12)
-                    .inner_margin(egui::Margin {
-                        left: 10,
-                        right: 4,
-                        top: 3,
-                        bottom: 3,
-                    })
-                    .show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 4.0;
-                            ui.label(egui::RichText::new(name_of(&code)).color(p.strong_text))
-                                .on_hover_text(&tip);
-                            if !mark.is_empty() {
-                                ui.label(egui::RichText::new(mark).small().color(p.accent))
-                                    .on_hover_text(&tip);
-                            }
-                            let x = ui.add(
-                                egui::Button::new(egui::RichText::new("✕").small()).frame(false),
-                            );
-                            if x.on_hover_text("Remove").clicked() {
-                                remove = Some(code.clone());
-                            }
-                        });
-                    });
+                if lang_chip(ui, &name_of(&code), mark, &tip, fill) {
+                    remove = Some(code.clone());
+                }
             }
             // + Add language: a searchable list of the others
             let search = &mut self.settings_ui.lang_search;
@@ -2804,6 +2783,60 @@ const OPEN_SOURCE: [(&str, &str, &str); 18] = [
         "MIT AND BSD (assets/dictionaries/en_US-LICENSE.txt)",
     ),
 ];
+
+/// A spellcheck language chip: its name, a status mark and ✕, drawn as one piece of known
+/// size so a wrapping row can move it to the next line whole. True when ✕ was clicked.
+fn lang_chip(ui: &mut egui::Ui, name: &str, mark: &str, tip: &str, fill: Color32) -> bool {
+    let p = crate::style::theme::c();
+    let font = egui::FontId::proportional(13.5);
+    let small = egui::FontId::proportional(11.5);
+    let name_g = ui
+        .painter()
+        .layout_no_wrap(name.to_string(), font, p.strong_text);
+    let mark_g = ui
+        .painter()
+        .layout_no_wrap(mark.to_string(), small.clone(), p.accent);
+    let x_w = 16.0;
+    let mark_w = if mark.is_empty() {
+        0.0
+    } else {
+        mark_g.size().x + 4.0
+    };
+    let size = Vec2::new(10.0 + name_g.size().x + 6.0 + mark_w + x_w + 4.0, 26.0);
+    let (rect, chip) = ui.allocate_exact_size(size, Sense::hover());
+    let x_rect = Rect::from_min_size(
+        Pos2::new(rect.right() - x_w - 4.0, rect.top()),
+        Vec2::new(x_w, rect.height()),
+    );
+    let x = ui.interact(x_rect, chip.id.with("remove"), Sense::click());
+    let painter = ui.painter();
+    painter.rect_filled(rect, 13.0, fill);
+    let mid = rect.center().y;
+    painter.galley(
+        Pos2::new(rect.left() + 10.0, mid - name_g.size().y / 2.0),
+        name_g.clone(),
+        p.strong_text,
+    );
+    if !mark.is_empty() {
+        painter.galley(
+            Pos2::new(
+                rect.left() + 10.0 + name_g.size().x + 6.0,
+                mid - mark_g.size().y / 2.0,
+            ),
+            mark_g,
+            p.accent,
+        );
+    }
+    painter.text(
+        x_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "✕",
+        small,
+        if x.hovered() { p.strong_text } else { p.system },
+    );
+    chip.on_hover_text(tip);
+    x.on_hover_text("Remove").clicked()
+}
 
 /// A titled box like Chatterino's About page sections.
 fn about_box(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {

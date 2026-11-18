@@ -36,7 +36,7 @@ the sample data only (never real channels or accounts). See PUBLISHING.md > The 
 
 ```
 cargo build                 # target\debug\live-streams.exe (the binary keeps this old name)
-cargo test                  # 68 unit tests; 14 network tests are #[ignore]
+cargo test                  # 69 unit tests; 16 network tests are #[ignore]
 cargo build --release       # what a release ships, renamed Yaperino.exe
 cargo fmt                   # rustfmt's default style; CI fails on `cargo fmt --check`
 ```
@@ -76,6 +76,7 @@ and exits. It never loads sign-ins, never saves settings and never touches the n
 | `LIVE_STREAMS_SHOT_AUTOMOD=1` | with `_MOD=1`: two held AutoMod messages (one waiting, one denied) and a pinned message bar |
 | `LIVE_STREAMS_SHOT_UNBAN=1` / `_MODLOGS=1` | the unban requests window / the mod log window, with sample data |
 | `LIVE_STREAMS_SHOT_CLICK="x,y;x,y right;..."` | real mouse clicks (one every 100 frames from frame 300) before the picture, to check what a click does (e.g. `110,152` opens a usercard with `_CHATS`); `x,y hover` only moves the mouse there, `x,y scroll=-700` turns the wheel |
+| `LIVE_STREAMS_SHOT_LANGS=en,de,tr` | the spellcheck languages to start with (Settings > General > Spellcheck chips) |
 | `LIVE_STREAMS_SHOT_LINK=<url>` | a sample message with that link (hover it with `_CLICK="250,278 hover"` for its preview; the preview asks the real site) |
 | `LIVE_STREAMS_SHOT_CAROUSEL=<text>` | that text typed in the first chat (e.g. `:ca` for the emote carousel; with `LIVE_STREAMS_REAL=1` for real emotes) |
 | `LIVE_STREAMS_SHOT_MANY_TABS=1` | 21 sample tabs: more than fit, to check wrapping (top/bottom) and scrolling (left/right) |

@@ -807,6 +807,11 @@ impl LiveApp {
                 .and_then(|s| eframe::get_value(s, eframe::APP_KEY))
                 .unwrap_or_default()
         };
+        let mut settings = settings;
+        // screenshot test only: spellcheck languages (LIVE_STREAMS_SHOT_LANGS=de,tr,fr)
+        if let (true, Ok(l)) = (demo, std::env::var("LIVE_STREAMS_SHOT_LANGS")) {
+            settings.spell_languages = l.split(',').map(|s| s.trim().to_string()).collect();
+        }
         let (acc_tx, acc_rx) = std::sync::mpsc::channel();
         let (emotes_tx, emotes_rx) = std::sync::mpsc::channel();
         let (other_tx, other_rx) = std::sync::mpsc::channel();
