@@ -942,12 +942,28 @@ pub fn chat_lines(
                         _ => None,
                     })
                 });
-                let menu = match hovered_url {
-                    Some(url) if look.link_previews => {
+                // a hovered emote: bigger, with its name and where it's from (Chatterino);
+                // shown from the line's area, which is on top of the emote picture
+                let hovered_emote = menu
+                    .hover_pos()
+                    .filter(|_| look.tooltips)
+                    .and_then(|p| hits.iter().find(|(r, _)| r.contains(p)))
+                    .map(|(_, e)| e.clone());
+                let menu = match (hovered_url, hovered_emote) {
+                    (Some(url), _) if look.link_previews => {
                         menu.on_hover_ui_at_pointer(|ui| crate::linkpreview::ui(ui, &url))
                     }
-                    Some(url) => menu.on_hover_text_at_pointer(format!("Open {url}")),
-                    None => menu,
+                    (Some(url), _) => menu.on_hover_text_at_pointer(format!("Open {url}")),
+                    (None, Some(e)) => menu.on_hover_ui_at_pointer(|ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.add(
+                                egui::Image::new(e.large_url()).max_size(Vec2::new(112.0, 112.0)),
+                            );
+                            ui.strong(&e.name);
+                            ui.weak(format!("{} emote", e.provider.label()));
+                        });
+                    }),
+                    (None, None) => menu,
                 };
                 if menu.secondary_clicked() {
                     let hit = menu.interact_pointer_pos().and_then(|p| {
@@ -1359,13 +1375,6 @@ fn draw_line(
                                     .max_height(emote_h),
                             );
                             hits.push((r.rect, e.clone()));
-                            if look.tooltips {
-                                r.on_hover_text(format!(
-                                    "{}\n{} emote",
-                                    e.name,
-                                    e.provider.label()
-                                ));
-                            }
                         }
                         Seg::Emote(e) => {
                             ui.label(RichText::new(&e.name).font(font.clone()).color(body_color));
@@ -1796,14 +1805,21 @@ pub fn platform_badge(
 /// Wide emotes keep their shape (at most 28 px tall, 84 px wide) instead of being squeezed
 /// into a square. Returns the button (click: add; right-click: the emote's menu).
 pub fn emote_button(ui: &mut egui::Ui, e: &emotes::Emote) -> egui::Response {
-    let img = egui::Image::new(e.url.as_str())
-        .fit_to_original_size(1.0)
-        .max_height(28.0)
-        .max_width(84.0);
-    let r = ui.add(
-        egui::Button::image(img)
-            .frame(false)
-            .min_size(Vec2::new(30.0, 30.0)),
-    );
-    r.on_hover_text(format!("{}\n{}", e.name, e.provider.label()))
+    // every emote in the same cell, so the window is an even grid; the picture keeps its
+    // shape inside it (wide emotes get smaller)
+    let (rect, r) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
+    if r.hovered() {
+        ui.painter()
+            .rect_filled(rect, 6.0, theme::c().accent.gamma_multiply(0.25));
+    }
+    let img = egui::Image::new(e.url.as_str());
+    let max = Vec2::splat(32.0);
+    let size = img
+        .load_for_size(ui.ctx(), max)
+        .ok()
+        .and_then(|t| t.size())
+        .filter(|s| s.x > 0.0 && s.y > 0.0)
+        .map_or(max, |s| s * (max.x / s.x).min(max.y / s.y));
+    img.paint_at(ui, egui::Rect::from_center_size(rect.center(), size));
+    r.on_hover_text(format!("{}\n{} emote", e.name, e.provider.label()))
 }

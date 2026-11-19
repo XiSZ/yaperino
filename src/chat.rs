@@ -6,7 +6,7 @@
 //! the colour from USERSTATE / GLOBALUSERSTATE. After a reconnect every open
 //! tab is joined again.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::TcpStream;
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
@@ -138,9 +138,10 @@ type Ws = WebSocket<MaybeTlsStream<TcpStream>>;
 struct State {
     channels: HashSet<String>,
     auth: Option<(String, String)>,
-    /// Our own name colour, display name and badges once Twitch tells us.
+    /// Our own name colour, display name and badges once Twitch tells us. Badges are per
+    /// channel (mod, VIP, sub differ), "" holds the global ones.
     color: Option<[u8; 3]>,
-    badges: Vec<(String, String)>,
+    badges: HashMap<String, Vec<(String, String)>>,
     display: Option<String>,
 }
 
@@ -149,7 +150,7 @@ fn worker(cmds: Receiver<Cmd>, ev: Sender<Event>, ctx: egui::Context) {
         channels: HashSet::new(),
         auth: None,
         color: None,
-        badges: Vec::new(),
+        badges: HashMap::new(),
         display: None,
     };
     let emit = |e: Event| {
@@ -337,6 +338,7 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
                         st.auth = a;
                         st.color = None;
                         st.display = None;
+                        st.badges.clear();
                         let _ = ws.close(None);
                         return Ok(Exit::Reconnect);
                     }
@@ -373,6 +375,12 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
                             .clone()
                             .or_else(|| me.clone())
                             .unwrap_or_default();
+                        let badges = st
+                            .badges
+                            .get(&ch)
+                            .or_else(|| st.badges.get(""))
+                            .cloned()
+                            .unwrap_or_default();
                         emit(Event::Line(
                             ch,
                             ChatLine::Msg {
@@ -383,7 +391,7 @@ fn session(st: &mut State, cmds: &Receiver<Cmd>, emit: &impl Fn(Event)) -> Resul
                                 action,
                                 own: true,
                                 emotes: Vec::new(),
-                                badges: st.badges.clone(),
+                                badges,
                                 segs: Vec::new(),
                                 platform: crate::platforms::Platform::Twitch,
                                 msg_id: String::new(),
@@ -451,7 +459,13 @@ fn handle(raw: &str, st: &mut State, emit: &impl Fn(Event)) {
                 st.display = Some(unescape(d));
             }
             if let Some(b) = tag(p.tags, "badges") {
-                st.badges = parse_badges(b);
+                // USERSTATE: this channel's badges; GLOBALUSERSTATE: everywhere else
+                let ch = if p.cmd == "USERSTATE" {
+                    channel_of(p.params).unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                st.badges.insert(ch, parse_badges(b));
             }
             // USERSTATE is per channel: are we a moderator (or the broadcaster) there?
             if p.cmd == "USERSTATE" {
@@ -812,7 +826,7 @@ mod tests {
             channels: HashSet::new(),
             auth: None,
             color: None,
-            badges: Vec::new(),
+            badges: HashMap::new(),
             display: None,
         };
         let got = std::cell::RefCell::new(Vec::new());
@@ -837,6 +851,21 @@ mod tests {
             })
             .collect();
         assert_eq!(ids, [("me".to_string(), "abc-123".to_string())]);
+        // badges are per channel: a mod badge in one chat isn't shown in another
+        handle(
+            "@badges=moderator/1;color=;display-name=Me;mod=1 :tmi.twitch.tv USERSTATE #modhere",
+            &mut st,
+            &emit,
+        );
+        handle(
+            "@badges=premium/1;color=;display-name=Me :tmi.twitch.tv GLOBALUSERSTATE",
+            &mut st,
+            &emit,
+        );
+        let b = |ch: &str| st.badges.get(ch).cloned().unwrap_or_default();
+        assert_eq!(b("modhere"), [("moderator".to_string(), "1".to_string())]);
+        assert_eq!(b("me"), [("broadcaster".to_string(), "1".to_string())]);
+        assert_eq!(b(""), [("premium".to_string(), "1".to_string())]);
     }
 
     #[test]

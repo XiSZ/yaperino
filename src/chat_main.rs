@@ -244,7 +244,33 @@ impl LiveApp {
             self.closed_splits.push((key.to_string(), name));
         }
         self.active_page = self.active_page.min(self.pages.len().saturating_sub(1));
+        self.show_nearest_page();
         self.focus_first_split();
+    }
+
+    /// After closing: when the tab now shown is one the tab bar hides (Only live tabs, a
+    /// collapsed group), show the nearest shown one instead, the one before it first.
+    /// Jumping to a hidden offline tab looked like a random chat opening.
+    fn show_nearest_page(&mut self) {
+        let n = self.pages.len();
+        if n == 0 {
+            return;
+        }
+        let p = self.active_page.min(n - 1);
+        let shown = |q: usize| {
+            let pg = &self.pages[q];
+            let collapsed =
+                !pg.group.is_empty() && self.settings.collapsed_groups.contains(&pg.group);
+            let live = pg.splits.iter().any(|k| !self.live_info(k).is_empty());
+            !collapsed && (!self.settings.tab_live_only || pg.always_visible || live)
+        };
+        if !shown(p) {
+            self.active_page = (0..p)
+                .rev()
+                .find(|&q| shown(q))
+                .or_else(|| (p + 1..n).find(|&q| shown(q)))
+                .unwrap_or(p);
+        }
     }
 
     fn focus_first_split(&mut self) {
@@ -546,6 +572,7 @@ impl LiveApp {
         let name = self.chats[i].display.clone();
         self.close_chat(i);
         self.closed_splits.push((key.to_string(), name.clone()));
+        self.show_nearest_page();
         self.focus_first_split();
         self.say(format!("Left {name} (Ctrl+G joins again)"));
     }
@@ -667,6 +694,7 @@ impl LiveApp {
         if self.pages.get(p).is_some_and(|pg| pg.splits.is_empty()) {
             self.pages.remove(p);
             self.active_page = self.active_page.min(self.pages.len().saturating_sub(1));
+            self.show_nearest_page();
             self.focus_first_split();
             return;
         }
@@ -2660,15 +2688,17 @@ impl LiveApp {
                 .collect()
         };
         let mut tabs: Vec<(&str, Vec<(String, Vec<emotes::Emote>)>)> = Vec::new();
+        // Favourite holds only what you added; the emotes you used are under Recent
         tabs.push((
             "Favourite",
-            vec![
-                (
-                    "Favourite".into(),
-                    to_emotes(&self.settings.emote_favourites),
-                ),
-                ("Recent".into(), to_emotes(&self.settings.recent_emotes)),
-            ],
+            vec![(
+                "Favourite".into(),
+                to_emotes(&self.settings.emote_favourites),
+            )],
+        ));
+        tabs.push((
+            "Recent",
+            vec![("Recent".into(), to_emotes(&self.settings.recent_emotes))],
         ));
         let mut kinds: Vec<String> = self
             .emotes
@@ -2758,8 +2788,8 @@ impl LiveApp {
                             return;
                         }
                         ui.vertical_centered(|ui| ui.label(egui::RichText::new(title).strong().color(crate::style::theme::c().strong_text)));
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true).with_main_align(egui::Align::Center), |ui| {
-                            ui.spacing_mut().item_spacing = Vec2::new(2.0, 2.0);
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
                             for e in list {
                                 let r = crate::style::emote_button(ui, e);
                                 if r.clicked() {
@@ -2800,7 +2830,8 @@ impl LiveApp {
                         if !any {
                             ui.vertical_centered(|ui| {
                                 ui.weak(match tabs[tab].0 {
-                                    "Favourite" => "Right-click an emote > Add to favourites. Emotes you use show up here too.",
+                                    "Favourite" => "Right-click an emote > Add to favourites.",
+                                    "Recent" => "Emotes you use show up here.",
                                     "Subs" => "Sign in to Twitch to see your subscriber and follower emotes here.",
                                     "Channel" => "This channel has no 7TV, BTTV, FFZ or Kick emotes (or they are still loading).",
                                     _ => "Loading...",

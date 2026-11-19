@@ -93,7 +93,7 @@ impl Page {
     /// Words "Find in settings" matches for this page.
     fn keywords(self) -> &'static str {
         match self {
-            Page::General => "interface theme dark black light white accent colour color font family zoom size scale tab layout position top left right bottom visibility live tabs close button title bar window always on top start with windows chat messages platform badge bold names completion autocomplete tab complete suggestions message limit counter live dot timestamps alternate background separator badges mention emotes emote size 7tv bttv ffz recent split header viewers uptime title game restore",
+            Page::General => "interface theme dark black light white accent colour color font family zoom size scale tab layout position top left right bottom visibility live tabs close button title bar window always on top start with windows tray minimize hide chat messages platform badge bold names completion autocomplete tab complete suggestions carousel message limit counter live dot timestamps alternate background separator badges mention emotes emote size 7tv bttv ffz recent split header viewers uptime title game restore history robotty collapse repeated link links preview previews spellcheck spelling spell dictionary dictionaries language languages typo translation translate deepl google auto-translate",
             Page::Accounts => "twitch kick youtube tiktok login sign in account device client id oauth token google",
             Page::Nicknames => "nickname rename user name",
             Page::Commands => "command alias /",
@@ -107,10 +107,16 @@ impl Page {
             Page::Platforms => "added channels kick youtube tiktok links platforms",
             Page::ExternalTools => "streamlink player quality external custom player uri scheme",
             Page::Plugins => "plugins plugin lua scripts commands",
-            Page::About => "about version install licenses open source",
+            Page::About => "about version install licenses open source backup backups restore import settings",
         }
     }
 }
+/// "Find in settings": every word typed is in the page's name or keywords, in any order.
+fn page_matches(p: Page, query: &str) -> bool {
+    let words = format!("{} {}", p.label().to_lowercase(), p.keywords());
+    query.split_whitespace().all(|w| words.contains(w))
+}
+
 /// General's sections, in the index on the right.
 const GENERAL_SECTIONS: [&str; 4] = ["Interface", "Chat", "Translation", "Emotes"];
 
@@ -324,11 +330,15 @@ impl LiveApp {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 ui.add_space(8.0);
                 let q = self.settings_ui.search.trim().to_lowercase();
-                let hit = |p: Page| {
-                    q.is_empty()
-                        || p.label().to_lowercase().contains(&q)
-                        || p.keywords().contains(&q)
-                };
+                let hit = |p: Page| page_matches(p, &q);
+                // the open page doesn't match: show the first one that does
+                if !hit(self.settings_ui.page) {
+                    if let Some(p) = Page::ALL.into_iter().find(|p| hit(*p)) {
+                        self.settings_ui.page = p;
+                        self.settings_ui.sub_tab = 0;
+                        self.settings_ui.log_size = None;
+                    }
+                }
                 for p in Page::ALL {
                     if p == Page::About || !hit(p) {
                         continue;
@@ -3200,5 +3210,21 @@ impl LiveApp {
                     }
                 });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_search_matches_every_word_in_any_order() {
+        assert!(page_matches(Page::General, ""));
+        assert!(page_matches(Page::General, "spellcheck"));
+        assert!(page_matches(Page::General, "completion tab"));
+        assert!(page_matches(Page::About, "backup"));
+        assert!(page_matches(Page::Hotkeys, "hotkeys"));
+        assert!(!page_matches(Page::Hotkeys, "spellcheck"));
+        assert!(!page_matches(Page::General, "spellcheck nonsenseword"));
     }
 }
