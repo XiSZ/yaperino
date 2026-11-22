@@ -111,10 +111,208 @@ impl Page {
         }
     }
 }
-/// "Find in settings": every word typed is in the page's name or keywords, in any order.
+/// One stretch of a settings page for "Find in settings": its page, sub-tab and heading, and
+/// every word drawn there. Read once from this file's own text, so each label, hint and
+/// tooltip can be found without a word list to keep up to date.
+struct Spot {
+    page: Page,
+    sub_tab: usize,
+    heading: &'static str,
+    words: Vec<String>,
+}
+
+/// The functions that draw a settings page (or a section of General).
+fn drawn_on(f: &str) -> Option<(Page, &'static str)> {
+    Some(match f {
+        "interface_section" => (Page::General, "Interface"),
+        "chat_page" => (Page::General, "Chat"),
+        "translation_section" => (Page::General, "Translation"),
+        "emotes_page" => (Page::General, "Emotes"),
+        "accounts_page" => (Page::Accounts, ""),
+        "nicknames_page" => (Page::Nicknames, ""),
+        "commands_page" => (Page::Commands, ""),
+        "highlights_page" => (Page::Highlights, ""),
+        "ignores_page" => (Page::Ignores, ""),
+        "filters_page" => (Page::Filters, ""),
+        "hotkeys_page" => (Page::Hotkeys, ""),
+        "moderation_page" => (Page::Moderation, ""),
+        "notifications_page" => (Page::Notifications, ""),
+        "live_list_page" | "list_source" => (Page::LiveList, ""),
+        "channels_page" => (Page::Platforms, ""),
+        "streamlink_page" => (Page::ExternalTools, ""),
+        "plugins_page" => (Page::Plugins, ""),
+        "about_page" => (Page::About, ""),
+        _ => return None,
+    })
+}
+
+fn words_of(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+}
+
+/// The string literals on a line of code, up to a `//` comment.
+fn literals(line: &'static str) -> Vec<&'static str> {
+    let b = line.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'"' {
+            let start = i + 1;
+            i += 1;
+            while i < b.len() && b[i] != b'"' {
+                i += if b[i] == b'\\' { 2 } else { 1 };
+            }
+            out.push(&line[start..i.min(b.len())]);
+        } else if b[i] == b'/' && b.get(i + 1) == Some(&b'/') {
+            break;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Every page's spots, in the order they're drawn: a new one at each page function,
+/// `heading(ui, "...")` and `// search-tab: N name` (a sub-tab of Highlights or Ignores).
+fn spots() -> &'static [Spot] {
+    static SPOTS: std::sync::OnceLock<Vec<Spot>> = std::sync::OnceLock::new();
+    SPOTS.get_or_init(|| {
+        let src: &'static str = include_str!("settings_ui.rs");
+        // up to the tests (at a line's start: this line names them too)
+        let src = src.split("\n#[cfg(test)]").next().unwrap_or(src);
+        let mut spots: Vec<Spot> = Vec::new();
+        let mut page: Option<Page> = None;
+        let mut in_sub_tabs = false;
+        for line in src.lines() {
+            let t = line.trim_start();
+            let f = ["fn ", "pub fn ", "pub(super) fn ", "pub(crate) fn "]
+                .iter()
+                .find_map(|p| t.strip_prefix(p));
+            if let Some(f) = f {
+                let here = drawn_on(f.split('(').next().unwrap_or(""));
+                page = here.map(|(p, _)| p);
+                if let Some((p, section)) = here {
+                    spots.push(Spot {
+                        page: p,
+                        sub_tab: 0,
+                        heading: section,
+                        words: words_of(section).collect(),
+                    });
+                }
+                continue;
+            }
+            let Some(p) = page else { continue };
+            if let Some(m) = t.strip_prefix("// search-tab: ") {
+                let (n, name) = m.split_once(' ').unwrap_or((m, ""));
+                let sub_tab = n.parse().unwrap_or(0);
+                spots.push(Spot {
+                    page: p,
+                    sub_tab,
+                    heading: "",
+                    words: words_of(name).collect(),
+                });
+                continue;
+            }
+            // the sub-tab names belong to their tabs (the markers above), not to the first
+            if t.contains("sub_tabs(") {
+                in_sub_tabs = true;
+            }
+            if in_sub_tabs {
+                in_sub_tabs = !t.contains(");");
+                continue;
+            }
+            let lits = literals(t);
+            if t.contains("heading(ui, ") {
+                if let Some(h) = lits.first() {
+                    let sub_tab = spots.last().map_or(0, |s| s.sub_tab);
+                    spots.push(Spot {
+                        page: p,
+                        sub_tab,
+                        heading: h,
+                        words: Vec::new(),
+                    });
+                }
+            }
+            if let Some(s) = spots.last_mut() {
+                for l in lits {
+                    s.words.extend(words_of(l));
+                }
+            }
+        }
+        // Hotkeys lists its actions from hotkeys.rs
+        if let Some(s) = spots.iter_mut().find(|s| s.page == Page::Hotkeys) {
+            for (_, category, name, _) in crate::hotkeys::ACTIONS {
+                s.words.extend(words_of(category).chain(words_of(name)));
+            }
+        }
+        spots
+    })
+}
+
+/// Every word typed starts a word of `words` (in any order; "lock" isn't found in "block").
+fn has_words(words: &[String], query: &[String]) -> bool {
+    query
+        .iter()
+        .all(|q| words.iter().any(|w| w.starts_with(q.as_str())))
+}
+
+/// "Find in settings": every word typed starts a word of the page: its name, its keywords
+/// or anything drawn on it.
 fn page_matches(p: Page, query: &str) -> bool {
-    let words = format!("{} {}", p.label().to_lowercase(), p.keywords());
-    query.split_whitespace().all(|w| words.contains(w))
+    let query: Vec<String> = words_of(query).collect();
+    if query.is_empty() {
+        return true;
+    }
+    let mut words: Vec<String> = words_of(p.label()).chain(words_of(p.keywords())).collect();
+    for s in spots().iter().filter(|s| s.page == p) {
+        words.extend(s.words.iter().cloned());
+    }
+    has_words(&words, &query)
+}
+
+/// Where a search lands on a page: the first spot that has every word typed.
+fn first_spot(p: Page, query: &str) -> Option<&'static Spot> {
+    let query: Vec<String> = words_of(query).collect();
+    if query.is_empty() {
+        return None;
+    }
+    spots()
+        .iter()
+        .find(|s| s.page == p && has_words(&s.words, &query))
+}
+
+/// The headings on the shown page that match the search (drawn highlighted), and the one
+/// to scroll to once.
+#[derive(Default)]
+struct Found {
+    headings: Vec<&'static str>,
+    scroll: Option<&'static str>,
+}
+thread_local! {
+    static FOUND: std::cell::RefCell<Found> = std::cell::RefCell::new(Found::default());
+}
+
+/// A heading or section title the search found: an accent tint behind it, and scrolled to
+/// when it's where the search landed.
+fn mark_found(ui: &egui::Ui, text: &'static str, bg: egui::layers::ShapeIdx, r: &egui::Response) {
+    FOUND.with(|f| {
+        let mut f = f.borrow_mut();
+        if f.headings.contains(&text) {
+            ui.painter().set(
+                bg,
+                egui::Shape::rect_filled(
+                    r.rect.expand2(Vec2::new(6.0, 2.0)),
+                    4.0,
+                    crate::style::theme::c().accent.gamma_multiply(0.25),
+                ),
+            );
+        }
+        if f.scroll == Some(text).filter(|t| !t.is_empty()) {
+            r.scroll_to_me(Some(egui::Align::TOP));
+            f.scroll = None;
+        }
+    });
 }
 
 /// General's sections, in the index on the right.
@@ -126,6 +324,8 @@ pub struct SettingsUi {
     pub open: bool,
     pub page: Page,
     pub search: String,
+    /// The search the page was last chosen for (a new one lands where it's found).
+    pub last_search: String,
     pub yt_client_id: String,
     pub yt_client_secret: String,
     pub yt_busy: bool,
@@ -165,13 +365,15 @@ pub struct SettingsUi {
 }
 
 /// A section title like Chatterino's settings pages: larger, regular weight, with space above.
-fn heading(ui: &mut egui::Ui, text: &str, _color: Color32) {
+fn heading(ui: &mut egui::Ui, text: &'static str, _color: Color32) {
     ui.add_space(10.0);
-    ui.label(
+    let bg = ui.painter().add(egui::Shape::Noop);
+    let r = ui.label(
         egui::RichText::new(text)
             .size(15.0)
             .color(crate::style::theme::c().strong_text),
     );
+    mark_found(ui, text, bg, &r);
     ui.add_space(2.0);
 }
 
@@ -312,6 +514,39 @@ impl LiveApp {
                     r.request_focus();
                 }
             });
+        let q = self.settings_ui.search.trim().to_lowercase();
+        if q != self.settings_ui.last_search {
+            // the search changed: go where it's found (the open page if it's there)
+            self.settings_ui.last_search = q.clone();
+            if !page_matches(self.settings_ui.page, &q) {
+                if let Some(p) = Page::ALL.into_iter().find(|p| page_matches(*p, &q)) {
+                    self.settings_ui.page = p;
+                    self.settings_ui.sub_tab = 0;
+                    self.settings_ui.log_size = None;
+                }
+            }
+            let spot = first_spot(self.settings_ui.page, &q);
+            if let Some(s) = spot.filter(|s| s.sub_tab != 0) {
+                self.settings_ui.sub_tab = s.sub_tab;
+            }
+            FOUND.with(|f| f.borrow_mut().scroll = spot.map(|s| s.heading));
+        }
+        // the headings of the shown page (and sub-tab) the search found
+        let query: Vec<String> = words_of(&q).collect();
+        let (page, sub_tab) = (self.settings_ui.page, self.settings_ui.sub_tab);
+        let found: Vec<&'static str> = spots()
+            .iter()
+            .filter(|s| {
+                s.page == page
+                    && !s.heading.is_empty()
+                    && (s.sub_tab == sub_tab || !matches!(page, Page::Highlights | Page::Ignores))
+                    && !query.is_empty()
+                    && has_words(&s.words, &query)
+            })
+            .map(|s| s.heading)
+            .collect();
+        FOUND.with(|f| f.borrow_mut().headings = found);
+        let nothing = !q.is_empty() && !Page::ALL.into_iter().any(|p| page_matches(p, &q));
         egui::Panel::left("settings-tabs")
             .exact_size(150.0)
             .resizable(false)
@@ -329,16 +564,7 @@ impl LiveApp {
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 ui.add_space(8.0);
-                let q = self.settings_ui.search.trim().to_lowercase();
                 let hit = |p: Page| page_matches(p, &q);
-                // the open page doesn't match: show the first one that does
-                if !hit(self.settings_ui.page) {
-                    if let Some(p) = Page::ALL.into_iter().find(|p| hit(*p)) {
-                        self.settings_ui.page = p;
-                        self.settings_ui.sub_tab = 0;
-                        self.settings_ui.log_size = None;
-                    }
-                }
                 for p in Page::ALL {
                     if p == Page::About || !hit(p) {
                         continue;
@@ -413,6 +639,15 @@ impl LiveApp {
                         // at most 640 wide, never wider than the window shows (set_max_width
                         // alone can widen it: text then ran off the right edge, unwrapped)
                         ui.set_max_width(ui.available_width().min(640.0));
+                        if nothing {
+                            ui.add_space(12.0);
+                            ui.label(format!(
+                                "No settings match \"{}\".",
+                                self.settings_ui.search.trim()
+                            ));
+                            ui.weak("Try fewer words, or the start of a word.");
+                            return;
+                        }
                         match self.settings_ui.page {
                             Page::General => self.general_page(ui),
                             Page::Accounts => self.accounts_page(ui),
@@ -477,11 +712,13 @@ impl LiveApp {
     /// index on the right scrolls to it.
     fn section(&mut self, ui: &mut egui::Ui, name: &'static str) {
         ui.add_space(12.0);
+        let bg = ui.painter().add(egui::Shape::Noop);
         let r = ui.label(
             egui::RichText::new(format!("{name}:"))
                 .size(22.0)
                 .color(crate::style::theme::c().accent),
         );
+        mark_found(ui, name, bg, &r);
         if self.settings_ui.scroll_to == Some(name) {
             r.scroll_to_me(Some(egui::Align::TOP));
             self.settings_ui.scroll_to = None;
@@ -1972,6 +2209,7 @@ impl LiveApp {
         let s = &mut self.settings_ui;
         match s.sub_tab {
             0 => {
+                // search-tab: 0 Messages
                 ui.label("Highlight messages based on certain patterns. Message highlights are prioritized over user and badge highlights.");
                 ui.checkbox(
                     &mut self.settings.highlight_mentions,
@@ -1987,6 +2225,7 @@ impl LiveApp {
                 );
             }
             1 => {
+                // search-tab: 1 Users
                 ui.label("Highlight every message of these users.");
                 highlight_table(
                     ui,
@@ -1997,6 +2236,7 @@ impl LiveApp {
                 );
             }
             2 => {
+                // search-tab: 2 Badges
                 ui.label("Highlight messages of users with these badges (Twitch).");
                 highlight_table(
                     ui,
@@ -2007,6 +2247,7 @@ impl LiveApp {
                 );
             }
             _ => {
+                // search-tab: 3 Blacklisted Users blacklist
                 ui.label("Messages of these users are never highlighted (also not for mentions).");
                 word_list(
                     ui,
@@ -2017,6 +2258,7 @@ impl LiveApp {
                 );
             }
         }
+        // search-tab: 0 sound
         ui.add_space(8.0);
         ui.label("Default sound: the Windows notification sound.");
         ui.checkbox(
@@ -2030,6 +2272,7 @@ impl LiveApp {
     fn ignores_page(&mut self, ui: &mut egui::Ui) {
         sub_tabs(ui, &["Messages", "Users"], &mut self.settings_ui.sub_tab);
         if self.settings_ui.sub_tab == 0 {
+            // search-tab: 0 Messages
             ui.label("Ignore messages based on certain patterns: Block hides the message, otherwise what matched is replaced.");
             let rows = &mut self.settings.ignore_rules;
             let mut remove: Option<usize> = None;
@@ -2102,6 +2345,7 @@ impl LiveApp {
                 rows.remove(i);
             }
         } else {
+            // search-tab: 1 Users
             ui.label("Messages of these users are hidden (the exact name, any case).");
             let s = &mut self.settings_ui;
             word_list(
@@ -3222,9 +3466,53 @@ mod tests {
         assert!(page_matches(Page::General, ""));
         assert!(page_matches(Page::General, "spellcheck"));
         assert!(page_matches(Page::General, "completion tab"));
+        assert!(page_matches(Page::General, "tab completion"));
         assert!(page_matches(Page::About, "backup"));
         assert!(page_matches(Page::Hotkeys, "hotkeys"));
         assert!(!page_matches(Page::Hotkeys, "spellcheck"));
         assert!(!page_matches(Page::General, "spellcheck nonsenseword"));
+    }
+
+    /// Where a search lands: the first page that has it.
+    fn lands(q: &str) -> Option<Page> {
+        Page::ALL.into_iter().find(|p| page_matches(*p, q))
+    }
+
+    #[test]
+    fn settings_search_finds_what_the_pages_show() {
+        // labels that were in no keyword list
+        assert_eq!(lands("thinner"), Some(Page::General));
+        assert_eq!(lands("lock tab layout"), Some(Page::General));
+        assert_eq!(lands("padlocks"), Some(Page::General));
+        assert_eq!(lands("pop out"), Some(Page::Hotkeys));
+        // a word's start, not any part of it: "lock" isn't Ignores' "Block"
+        assert!(!page_matches(Page::Ignores, "lock"));
+        assert_eq!(lands("zzqx"), None);
+    }
+
+    #[test]
+    fn settings_search_lands_on_the_heading_and_sub_tab() {
+        let s = first_spot(Page::General, "accent").unwrap();
+        assert_eq!(s.heading, "Accent colour");
+        let s = first_spot(Page::Highlights, "blacklisted").unwrap();
+        assert_eq!(s.sub_tab, 3);
+        let s = first_spot(Page::Ignores, "hidden users").unwrap();
+        assert_eq!(s.sub_tab, 1);
+    }
+
+    #[test]
+    fn every_heading_is_found_on_its_page() {
+        let all = spots();
+        assert!(all.iter().filter(|s| !s.heading.is_empty()).count() > 30);
+        for s in all.iter().filter(|s| !s.heading.is_empty()) {
+            assert_eq!(
+                first_spot(s.page, s.heading).map(|f| f.page),
+                Some(s.page),
+                "{:?} isn't found on {}",
+                s.heading,
+                s.page.label()
+            );
+            assert!(page_matches(s.page, s.heading));
+        }
     }
 }

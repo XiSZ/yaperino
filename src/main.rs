@@ -175,13 +175,17 @@ fn main() -> eframe::Result<()> {
             viewport = viewport.with_window_level(egui::WindowLevel::AlwaysOnBottom);
         }
     }
+    // YAPERINO_DATA=<folder>: this run keeps its settings there (for trying a build without
+    // touching the real ones)
+    let data = std::env::var_os("YAPERINO_DATA").map(PathBuf::from);
     let options = eframe::NativeOptions {
         viewport,
         persist_window: shot.is_none(),
         run_and_return: true,
+        persistence_path: data.as_ref().map(|d| d.join("app.ron")),
         ..Default::default()
     };
-    if shot.is_none() {
+    if shot.is_none() && data.is_none() {
         move_old_settings();
     }
     eframe::run_native(

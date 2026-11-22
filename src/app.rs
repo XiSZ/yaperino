@@ -126,6 +126,10 @@ pub struct Settings {
     pub live_on_start: bool,
     /// Tabs with their splits and names (replaces open_pages).
     pub tabs: Vec<TabPage>,
+    /// Pop-out windows with their splits, where they were and how big.
+    pub popups: Vec<SavedPopup>,
+    /// The tab that was shown (its first split), shown again at start.
+    pub active_tab: String,
     /// Chatterino pages: Nicknames (user -> name), Commands, Highlights, Ignores, Live Notifications.
     pub nicknames: Vec<(String, String)>,
     pub commands: Vec<CustomCommand>,
@@ -304,6 +308,8 @@ impl Default for Settings {
             open_pages: Vec::new(),
             live_on_start: false,
             tabs: Vec::new(),
+            popups: Vec::new(),
+            active_tab: String::new(),
             nicknames: Vec::new(),
             commands: Vec::new(),
             highlight_phrases: Vec::new(),
@@ -432,6 +438,15 @@ pub struct TabPage {
     pub always_visible: bool,
     /// Moltorino tab group (tab menu > Move to group); empty = none.
     pub group: String,
+}
+
+/// A pop-out window as saved: its tab, and its place and size on screen (points).
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct SavedPopup {
+    pub page: TabPage,
+    pub pos: Option<[f32; 2]>,
+    pub size: Option<[f32; 2]>,
 }
 
 impl TabPage {
@@ -684,6 +699,12 @@ pub struct LiveApp {
     /// Pop-out windows (Ctrl+N / Ctrl+Shift+N): (window id, its tab).
     popups: Vec<(u64, TabPage)>,
     next_popup: u64,
+    /// Where each pop-out window is now (to save), and where a reopened one starts.
+    popup_rects: HashMap<u64, ([f32; 2], [f32; 2])>,
+    popup_start: HashMap<u64, ([f32; 2], [f32; 2])>,
+    /// A live check has answered: until then nobody is known to be live, so "Only live
+    /// tabs" hides nothing (at start it hid nearly every tab).
+    live_known: bool,
     /// Closed splits, newest last (Ctrl+G reopens).
     closed_splits: Vec<(String, String)>,
     /// "Rename tab" in progress: (tab, text).
@@ -890,6 +911,9 @@ impl LiveApp {
             active_page: 0,
             popups: Vec::new(),
             next_popup: 1,
+            popup_rects: HashMap::new(),
+            popup_start: HashMap::new(),
+            live_known: false,
             closed_splits: Vec::new(),
             renaming: None,
             change_channel: None,
@@ -1050,33 +1074,45 @@ impl LiveApp {
             app.load_kick_account();
             // reopen the tabs (with their splits) of last time
             if app.settings.restore_tabs {
-                if !app.settings.tabs.is_empty() {
+                if !app.settings.tabs.is_empty() || !app.settings.popups.is_empty() {
+                    // each tab and pop-out exactly as it was: its chats are joined, and the
+                    // tab itself is put back as saved (opening a channel that's already in
+                    // another tab used to merge the rest of the tab into that one)
                     let names: HashMap<String, String> =
                         app.settings.open_tabs.iter().cloned().collect();
-                    app.restoring = true;
-                    for page in app.settings.tabs.clone() {
-                        if page.splits.is_empty() {
-                            // an empty tab stays an empty tab
-                            app.pages.push(page);
-                            continue;
-                        }
-                        for (n, key) in page.splits.iter().enumerate() {
-                            app.open_split_next = n > 0;
+                    let join = |app: &mut LiveApp, splits: &[String]| {
+                        for key in splits {
                             let name = names
                                 .get(key)
                                 .cloned()
                                 .unwrap_or_else(|| tab_primary(key).1);
                             app.open_chat(key, &name);
                         }
-                        if let Some(last) = app.pages.last_mut() {
-                            last.title = page.title.clone();
-                            last.locked = page.locked;
-                            last.color = page.color;
-                            last.always_visible = page.always_visible;
+                    };
+                    app.restoring = true;
+                    for page in app.settings.tabs.clone() {
+                        join(&mut app, &page.splits);
+                        app.pages.push(page);
+                    }
+                    for w in app.settings.popups.clone() {
+                        if w.page.splits.is_empty() {
+                            continue;
                         }
+                        join(&mut app, &w.page.splits);
+                        let id = app.next_popup;
+                        app.next_popup += 1;
+                        if let (Some(pos), Some(size)) = (w.pos, w.size) {
+                            app.popup_start.insert(id, (pos, size));
+                        }
+                        app.popups.push((id, w.page));
                     }
                     app.restoring = false;
-                    app.active_page = 0;
+                    let shown = &app.settings.active_tab;
+                    app.active_page = app
+                        .pages
+                        .iter()
+                        .position(|pg| !shown.is_empty() && pg.splits.first() == Some(shown))
+                        .unwrap_or(0);
                 } else if app.settings.open_pages.is_empty() {
                     for (key, name) in app.settings.open_tabs.clone() {
                         app.open_chat(&key, &name);
@@ -1799,6 +1835,7 @@ impl LiveApp {
             self.removed.truncate(200);
         }
         self.streams = fresh;
+        self.live_known = true;
         self.resort();
     }
 
@@ -4098,8 +4135,28 @@ impl eframe::App for LiveApp {
                 .iter()
                 .map(|t| (t.login.clone(), t.display.clone()))
                 .collect();
-            // tabs with their splits and names
+            // tabs with their splits and names, the one shown, and the pop-out windows
             self.settings.tabs = self.pages.clone();
+            self.settings.active_tab = self
+                .pages
+                .get(self.active_page)
+                .and_then(|pg| pg.splits.first().cloned())
+                .unwrap_or_default();
+            self.settings.popups = self
+                .popups
+                .iter()
+                .map(|(id, page)| {
+                    let r = self
+                        .popup_rects
+                        .get(id)
+                        .or_else(|| self.popup_start.get(id));
+                    SavedPopup {
+                        page: page.clone(),
+                        pos: r.map(|r| r.0),
+                        size: r.map(|r| r.1),
+                    }
+                })
+                .collect();
             self.settings.open_pages.clear();
             eframe::set_value(storage, eframe::APP_KEY, &self.settings);
         }

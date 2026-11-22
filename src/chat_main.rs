@@ -146,6 +146,10 @@ impl LiveApp {
 
     /// Puts a channel into the tabs: as a new tab, or as a split in the current tab.
     pub(super) fn place_split(&mut self, key: &str, as_split: bool) {
+        if self.restoring {
+            // reopening last time's tabs: they're put back as they were saved
+            return;
+        }
         let popup = self.split_target.take();
         if let Some(target) = self.change_channel.take() {
             // Ctrl+R: the new channel takes the old split's place (in a tab or a pop-out)
@@ -248,6 +252,12 @@ impl LiveApp {
         self.focus_first_split();
     }
 
+    /// "Only live tabs" hides offline tabs once a live check has said who's live (before
+    /// that, at start, it would hide them all).
+    fn live_only(&self) -> bool {
+        self.settings.tab_live_only && self.live_known
+    }
+
     /// After closing: when the tab now shown is one the tab bar hides (Only live tabs, a
     /// collapsed group), show the nearest shown one instead, the one before it first.
     /// Jumping to a hidden offline tab looked like a random chat opening.
@@ -262,7 +272,7 @@ impl LiveApp {
             let collapsed =
                 !pg.group.is_empty() && self.settings.collapsed_groups.contains(&pg.group);
             let live = pg.splits.iter().any(|k| !self.live_info(k).is_empty());
-            !collapsed && (!self.settings.tab_live_only || pg.always_visible || live)
+            !collapsed && (!self.live_only() || pg.always_visible || live)
         };
         if !shown(p) {
             self.active_page = (0..p)
@@ -1072,7 +1082,7 @@ impl LiveApp {
                 }
                 // General > Interface > Tab visibility: Only live tabs (the shown tab stays)
                 // (Moltorino "Always visible" tabs stay)
-                if self.settings.tab_live_only
+                if self.live_only()
                     && !page.always_visible
                     && p != self.active_page
                     && !page.splits.iter().any(|k| !self.live_info(k).is_empty())
@@ -2614,12 +2624,43 @@ impl LiveApp {
             if self.shot.is_some() {
                 b = b.with_active(false);
             }
+            // a pop-out reopened at start goes where it was, as big as it was
+            if let Some((pos, size)) = self.popup_start.get(&id) {
+                b = b.with_position(*pos).with_inner_size(*size);
+            }
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of(("popup", id)),
                 b,
                 |ui, _| {
                     if ui.ctx().input(|i| i.viewport().close_requested()) {
                         closed.push(id);
+                    }
+                    let (outer, inner) = ui
+                        .ctx()
+                        .input(|i| (i.viewport().outer_rect, i.viewport().inner_rect));
+                    // a reopened window gets centred on the main one: move it back where it
+                    // was (for a few frames at most: that place may be off every screen now),
+                    // and don't save the centred place meanwhile
+                    let mut placing = false;
+                    if let Some((pos, _)) = self.popup_start.get(&id) {
+                        let pos = egui::pos2(pos[0], pos[1]);
+                        let key = ui.make_persistent_id(("popup-placed", id));
+                        let away = outer.is_some_and(|o| (o.min - pos).length() > 2.0);
+                        let tries = ui.ctx().data_mut(|d| {
+                            let n = d.get_temp_mut_or_default::<u32>(key);
+                            // there once: done (moving it later is the person's doing)
+                            *n = if away { n.saturating_add(1) } else { u32::MAX };
+                            *n
+                        });
+                        if away && tries <= 30 {
+                            ui.ctx()
+                                .send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos));
+                            placing = true;
+                        }
+                    }
+                    if let (false, Some(o), Some(i)) = (placing, outer, inner) {
+                        self.popup_rects
+                            .insert(id, ([o.min.x, o.min.y], [i.width(), i.height()]));
                     }
                     // a pop-out is its own window: its keys don't reach the main window's hotkeys
                     self.popup_hotkeys(ui.ctx(), id);
