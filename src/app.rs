@@ -713,6 +713,8 @@ pub struct LiveApp {
     change_channel: Option<String>,
     /// The Live Streams window (Alt+L) is open.
     live_open: bool,
+    /// It has had the focus since it opened (losing it then closes the window).
+    live_focused: bool,
     /// The next opened channel becomes a split in the current tab (Ctrl+T).
     open_split_next: bool,
     /// Name matching: Twitch channels (follows, list, joined) still to look up on Kick,
@@ -918,6 +920,7 @@ impl LiveApp {
             renaming: None,
             change_channel: None,
             live_open: false,
+            live_focused: false,
             open_split_next: false,
             match_queue: VecDeque::new(),
             match_queued: HashSet::new(),

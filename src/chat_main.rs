@@ -3243,6 +3243,7 @@ impl LiveApp {
     /// The Live Streams list as its own window (Alt+L), as Chatty's Live Channels dialog.
     pub(super) fn live_window(&mut self, ctx: &egui::Context) {
         if !self.live_open {
+            self.live_focused = false;
             return;
         }
         let title = self.title();
@@ -3267,6 +3268,13 @@ impl LiveApp {
                 {
                     close = true;
                 }
+                // like a popup: clicking elsewhere closes it, instead of it slipping behind
+                // the main window (only once it has had the focus, so opening it doesn't)
+                match ui.ctx().input(|i| i.viewport().focused) {
+                    Some(true) => self.live_focused = true,
+                    Some(false) if self.live_focused => close = true,
+                    _ => {}
+                }
                 egui::CentralPanel::no_frame()
                     .frame(egui::Frame::new().fill(BG))
                     .show(ui, |ui| self.list_ui(ui));
@@ -3274,6 +3282,7 @@ impl LiveApp {
         );
         if close {
             self.live_open = false;
+            self.live_focused = false;
         }
     }
 }
